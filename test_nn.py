@@ -2,7 +2,7 @@
 
 # torch.nn
 import torch
-import torch.nn as nn
+from torch import nn as nn
 from sympy.physics.units import acceleration
 from torch import optim
 import torch.nn.functional as F #Non-parametrized functions
@@ -45,7 +45,7 @@ learning_rate = 0.001
 batch_size = 64
 num_epochs = 1
 
-#Load Data
+# Load Data
 train_dataset = datasets.MNIST(root = 'dataset/', train=True, transform=transforms.ToTensor(), download = True)
 train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
 test_dataset = datasets.MNIST(root = 'dataset/', train=False, transform=transforms.ToTensor(), download = True)
@@ -71,6 +71,7 @@ for epoch in range(num_epochs):
 
         #forward
         scores = model(data)
+        print(scores)
         loss = criterion(scores, targets)
 
         #backward
@@ -105,6 +106,7 @@ def check_accuracy(loader, model):
         print(f"Got {num_correct} / {num_samples} with accuracy {(float(num_correct)/float(num_samples))*100.2}")
 
 model.train()
+
 
 check_accuracy(train_loader, model)
 check_accuracy(test_loader, model)
