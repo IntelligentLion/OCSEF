@@ -19,4 +19,6 @@ class VAE(nn.Module):
         super().__init__()
         self.convL1 = nn.Conv2d(in_channels = 1, out_channels = 8, kernel_size = 3, stride = 2, padding = 1)
         self.convL2 = nn.LazyConv2d(out_channels = 16, kernel_size = 5, stride = 1, padding = 1)
+        self.linL3 = nn.LazyLinear(out_features=24, bias = True)
+        self.poolL4 = nn.MaxPool2d
 
