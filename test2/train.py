@@ -6,24 +6,25 @@ from test_VAE2 import VAE
 from torchvision import transforms
 from torchvision.utils import save_image
 from torch.utils.data import DataLoader # Gives easier data management by creating mini batches, etc.
-
+import medmnist
+from medmnist import OrganAMNIST
 from test_nn import train_loader, batch_size
 
 #Hyperparameters
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 INPUT_DIM = 784
-H_DIM = 200
+H_DIM = 640
 Z_DIM = 20
 NUM_EPOCHS = 3
-BATCH_SIZE = 64
-LR_RATE = 3e-4 #Karapathy constant
+BATCH_SIZE = 20
+LR_RATE = 1e-4 #Karapathy constant
 
 #Loading
-dataset = datasets.MNIST(root="dataset/", train=True, transform=transforms.ToTensor(), download=True)
+dataset = OrganAMNIST(split="train", download=True)
 train_loader = DataLoader(dataset= dataset, batch_size=BATCH_SIZE, shuffle=True)
 model = VAE(INPUT_DIM, H_DIM, Z_DIM).to(DEVICE)
 optimizer = torch.optim.Adam(model. parameters(), lr=LR_RATE)
-loss_fn = nn.MSELoss(reduction="sum") #Other options, MSE
+loss_fn = nn.GaussianNLLLoss(reduction = 'mean') #Other options, MSE
 
 
 #Forward Training

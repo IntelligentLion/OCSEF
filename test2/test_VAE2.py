@@ -5,14 +5,12 @@ import torch.nn.functional as F #Non-parametrized functions
 from torch.utils.data import DataLoader
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
-import medmnist
-from medmnist import INFO, Evaluator
-from medmnist import OrganCMNIST
+
 
 
 class VAE(nn.Module):
     batch_size = 20
-    def __init__(self, input_dim, h_dim = 32*batch_size, z_dim = 20):
+    def __init__(self, input_dim, h_dim, z_dim):
         super().__init__()
 
         # input_dim = 28*28
