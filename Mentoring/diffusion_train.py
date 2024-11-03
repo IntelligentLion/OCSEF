@@ -51,7 +51,7 @@ def noise_schedule(t, beta_start=0.0001, beta_end=0.02, T=1000):
 def forward_diffusion(x_0, t, betas):
     """Applies the forward diffusion process by adding noise to the image."""
     noise = torch.randn_like(x_0)
-    beta_t, alpha_t_bar = noise_schedule(t, betas)
+    beta_t, alpha_t_bar = noise_schedule(t, betas) #error on this line
 
     # Ensure alpha_t_bar is selected per batch element
     alpha_t_bar = alpha_t_bar[t].view(-1, 1, 1, 1)  # Proper broadcasting for each batch item

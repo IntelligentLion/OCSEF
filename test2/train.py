@@ -16,14 +16,22 @@ INPUT_DIM = 784
 H_DIM = 640
 Z_DIM = 20
 NUM_EPOCHS = 3
-BATCH_SIZE = 20
+BATCH_SIZE = 32
 LR_RATE = 1e-4 #Karapathy constant
 
-#Loading
-dataset = OrganAMNIST(split="train", download=True)
-train_loader = DataLoader(dataset= dataset, batch_size=BATCH_SIZE, shuffle=True)
+#datasets
+train_dataset = OrganAMNIST(split="train", download=True)
+val_dataset = OrganAMNIST(split="val", download=True)
+test_dataset = OrganAMNIST(split="test", download = True)
+
+#loaders
+train_loader = DataLoader(dataset= train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+val_loader = DataLoader(dataset = val_dataset, batch_size=BATCH_SIZE, shuffle =False)
+test_loader = DataLoader(dataset = test_dataset, batch_size = BATCH_SIZE, shuffle = False)
+
+#Model and Parameters
 model = VAE(INPUT_DIM, H_DIM, Z_DIM).to(DEVICE)
-optimizer = torch.optim.Adam(model. parameters(), lr=LR_RATE)
+optimizer = torch.optim.Adam(model.parameters(), lr=LR_RATE)
 loss_fn = nn.GaussianNLLLoss(reduction = 'mean') #Other options, MSE
 
 
@@ -36,8 +44,8 @@ for epoch in range(NUM_EPOCHS):
         x_reconstructed, mu, log_var = model(x)
 
         #compute loss
-        reconstruction_loss = loss_fn(x_reconstructed, x)
-        kl_div = torch.sum(1+torch.log(sigma.pow(2) - mu.pow(2) - sigma.pow(2)))
+        reconstruction_loss = loss_fn(torch.exp(log_var))
+        kl_div = torch.sum(1+torch.log(log_var.pow(2) - mu.pow(2) - log_var.pow(2)))
 
         #backprop/Parameterization trick
         loss = reconstruction_loss + kl_div
