@@ -90,7 +90,7 @@ mnist_transform = transforms.Compose([transforms.ToTensor()])
 train_dataset = MNIST(root=dataset_path, train=True, download=True, transform=mnist_transform)
 
 dataset_size = len(train_dataset)
-train_size = int(0.025 * dataset_size)
+train_size = int(0.005 * dataset_size)
 val_size = dataset_size - train_size
 
 train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
@@ -139,10 +139,10 @@ for epoch in range(epochs):
 
     # Save generated images after every epoch
     with torch.no_grad():
-        sample_noise = torch.randn((64, 2, 28, 28)).to(x.device)
+        sample_noise = torch.randn((64, 1, 28, 28)).to(x.device)
         for i in range(T - 1, 0, -1):
             sample_noise = reverse_diffusion_step(sample_noise, torch.tensor([i]).to(x.device), model, betas)
-        save_image(sample_noise, f"diff_generated_images_epoch_{epoch + 1}.png")
+        save_image(sample_noise, f"diff_generated_images_epoch_{epoch + 1}.png" "~/checkpoints/")
 
 print("Training complete.")
 
