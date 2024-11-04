@@ -75,7 +75,7 @@ def reverse_diffusion_step(x_t, t, model, betas):
 epochs = 1
 batch_size = 12
 lr = 2e-4
-T = 1000 # Number of timesteps in the forward diffusion process
+T = 5 # Number of timesteps in the forward diffusion process
 best_loss = float('inf')  # Initialize best loss with infinity
 
 # Model Checkpoint Path
@@ -142,7 +142,7 @@ for epoch in range(epochs):
         sample_noise = torch.randn((64, 1, 28, 28)).to(x.device)
         for i in range(T - 1, 0, -1):
             sample_noise = reverse_diffusion_step(sample_noise, torch.tensor([i]).to(x.device), model, betas)
-        save_image(sample_noise, f"diff_generated_images_epoch_{epoch + 1}.png" "~/checkpoints/")
+        save_image(sample_noise, f"./checkpoints/diff_generated_images_epoch_{epoch + 1}.png")
 
 print("Training complete.")
 
