@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from sympy.abc import alpha
 from torchvision.datasets import MNIST
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 from tqdm import tqdm
+from torch.utils.data import random_split
 import math
 import os
 
@@ -15,7 +17,7 @@ class UNet(nn.Module):
     def __init__(self):
         super(UNet, self).__init__()
         self.encoder = nn.Sequential(
-            nn.Conv2d(1, 64, 3, padding=1), nn.ReLU(),
+            nn.Conv2d(2, 64, 3, padding=1), nn.ReLU(),
             nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(),
             nn.Conv2d(128, 256, 3, padding=1), nn.ReLU()
         )
@@ -38,20 +40,23 @@ class UNet(nn.Module):
         x = self.decoder(x)
         return x
 
+betas_total = torch.linspace(0.0001, 0.02, 1000)
+alphas_total = 1. - betas_total
 
 # Diffusion Model Helper Functions
-def noise_schedule(t=1000, beta_start=0.0001, beta_end=0.02):
+def noise_schedule(t):
     """Returns the beta_t and alpha_t_bar for a given time step."""
-    beta_t = beta_start + (beta_end - beta_start) * torch.linspace(0, 1, t)  # Adjusted t to float()
-    alpha_t = 1 - beta_t
+    beta_t = betas_total[t-1]
+    alpha_t = alphas_total[t-1]
+
     alpha_t_bar = torch.cumprod(alpha_t, dim=0)  # Cumulative product for alpha_t_bar
     return beta_t, alpha_t_bar
 
 
-def forward_diffusion(x_0, t, betas, alpha_bars):
+def forward_diffusion(x_0, t):
     """Applies the forward diffusion process by adding noise to the image."""
     noise = torch.randn_like(x_0)
-    alpha_t_bar = alpha_bars[t]
+    alpha_t_bar = alphas_total[t-1]
 
     # Ensure alpha_t_bar is selected per batch element
     alpha_t_bar = alpha_t_bar.view(-1, 1, 1, 1)  # Proper broadcasting for each batch item
@@ -61,16 +66,16 @@ def forward_diffusion(x_0, t, betas, alpha_bars):
 
 def reverse_diffusion_step(x_t, t, model, betas):
     """Single reverse step during diffusion"""
-    beta_t, alpha_t_bar = noise_schedule(t, betas)
+    beta_t, alpha_t_bar = noise_schedule(t)
     noise_pred = model(x_t, t)
     return (x_t - beta_t * noise_pred) / torch.sqrt(alpha_t_bar)
 
 
 # Hyperparameters
-epochs = 50
-batch_size = 64
+epochs = 1
+batch_size = 12
 lr = 2e-4
-T = 1000  # Number of timesteps in the forward diffusion process
+T = 1000 # Number of timesteps in the forward diffusion process
 best_loss = float('inf')  # Initialize best loss with infinity
 
 # Model Checkpoint Path
@@ -79,9 +84,16 @@ if not os.path.exists(checkpoint_dir):
     os.makedirs(checkpoint_dir)
 
 # Dataset and Dataloader
-dataset_path = '/dataset/'
+dataset_path = '~/OCSEF/dataset/'
 mnist_transform = transforms.Compose([transforms.ToTensor()])
+
 train_dataset = MNIST(root=dataset_path, train=True, download=True, transform=mnist_transform)
+
+dataset_size = len(train_dataset)
+train_size = int(0.025 * dataset_size)
+val_size = dataset_size - train_size
+
+train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
 # Initialize model, optimizer, loss function
@@ -101,7 +113,7 @@ for epoch in range(epochs):
         t = torch.randint(0, T, (x.size(0),)).to(x.device)  # Random time step for each image
 
         # Forward diffusion
-        x_t, noise = forward_diffusion(x, t, betas, alpha_bars)
+        x_t, noise = forward_diffusion(x, t)
 
         # Predict noise with the UNet model
         noise_pred = model(x_t, t)
@@ -127,7 +139,7 @@ for epoch in range(epochs):
 
     # Save generated images after every epoch
     with torch.no_grad():
-        sample_noise = torch.randn((64, 1, 28, 28)).to(x.device)
+        sample_noise = torch.randn((64, 2, 28, 28)).to(x.device)
         for i in range(T - 1, 0, -1):
             sample_noise = reverse_diffusion_step(sample_noise, torch.tensor([i]).to(x.device), model, betas)
         save_image(sample_noise, f"diff_generated_images_epoch_{epoch + 1}.png")
