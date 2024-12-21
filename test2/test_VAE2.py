@@ -54,7 +54,7 @@ class VAE(nn.Module):
         z = self.fc_decode(z)
         z = z.view(z.size(0), 28, 28, 1)
         z = F.gelu(self.deconv1(z))
-        z = torch.gaussian_nll_loss(self.deconv2(z))
+        z = torch.MSELoss(self.deconv2(z))
 
         return z
 

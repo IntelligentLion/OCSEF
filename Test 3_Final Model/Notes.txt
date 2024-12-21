@@ -1,0 +1,15 @@
+Forward Sequence:
+    x: input tensor
+    t: empty tensor
+    t_embed: noisy tensor(apply PCA here)
+    (Make custom function similar to .rand_like() to fetch from input batch 8)
+
+Betas_total: Tensor that stores percentage values of noise levels
+
+Video Notes:
+
+BASIC DIFFUSION
+Forward Process
+    Signal to Noise(can be one step)
+Reverse Process
+
