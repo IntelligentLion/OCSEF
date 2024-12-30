@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from math import lgamma
-
 from fontTools.misc.bezierTools import epsilon
 from matplotlib import pyplot as plt
 from torch import optim
