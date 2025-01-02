@@ -40,8 +40,8 @@ class UNet(nn.Module):
         x = self.decoder(x)
         return x
 
-betas_total = torch.linspace(0.0001, 0.02, 1000)
-alphas_total = 1. - betas_total
+betas_total = torch.linspace(0.0001, 0.02, 1000) # all the betas within the specified range
+alphas_total = 1. - betas_total # all the alphas within the range
 
 # Diffusion Model Helper Functions
 def noise_schedule(t):
