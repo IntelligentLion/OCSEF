@@ -84,6 +84,6 @@ class UNet(nn.Module):
 
 
 if __name__ == "__main__":
-    x = "~/img.png"
+    x = torch.randn([1, 1, 572, 572])
     model = UNet()
     model(x)
