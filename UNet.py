@@ -1,5 +1,8 @@
 import torch
 import torch.nn as nn
+import torchvision.transforms as transforms
+from PIL import Image
+from torchvision.utils import save_image
 
 def crop_img(tensor, target_tensor):
     tensor_size = tensor.size()[2]
@@ -7,8 +10,6 @@ def crop_img(tensor, target_tensor):
     delta = tensor_size - target_size
     delta = delta // 2
     return tensor[:, :, delta:tensor_size-delta, delta:tensor_size-delta]
-
-
 
 def doubleConv2d(in_c, out_c):
     conv = nn.Sequential(
@@ -82,8 +83,26 @@ class UNet(nn.Module):
 
         print(output.size())
 
+# Diffusion Helper Functions
+def beta_schedule(timesteps, start, end):
+    return torch.linspace(start, end, timesteps)
+
+def get_random_timestep(vals, lower, upper):
+    index = torch.randint(lower, upper, (1,))
+    return vals[index]
+
+# Beta-schedule
+timesteps = 200
+betas = beta_schedule(timesteps, 0, 0.05)
+
+# Pre-calculated Values
+alphas = 1 - betas
+alphas_cumprod = torch.cumprod(alphas, dim=0)
+
+
+
 
 if __name__ == "__main__":
-    x = torch.randn([1, 1, 572, 572])
-    model = UNet()
-    model(x)
+    betas = beta_schedule(17, 0, 0.05)
+    random_timestep = get_random_timestep(betas, 0, len(betas)-1)
+    print(random_timestep)
