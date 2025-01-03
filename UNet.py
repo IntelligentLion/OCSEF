@@ -5,7 +5,7 @@ from torchvision.datasets.folder import default_loader
 from PIL import Image
 from torch.utils.data import random_split, DataLoader, Dataset
 from torchvision.utils import save_image
-from torch import dataset
+from torch import dataset, optim
 from dataset import MNIST
 import tqdm
 import pandas as pd
@@ -172,17 +172,24 @@ val_size = dataset_size - train_size
 train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
+# Initialize model
+model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
+optimizer = optim.Adam(model.paramters(), lr=lr)
 for epoch in range(EPOCHS):
     print(f"Epoch: {epoch+1}/{EPOCHS}")
     epoch_loss = 0
     for batch_idx, (image, _) in tqdm(enumerate(train_loader), total=len(train_loader)):
         image = image.to('cuda' if torch.cuda.is_available() else 'cpu')
-        t = torch.randint(0, timesteps, (1,))
+        t = torch.randint(0, timesteps, (1,)).to(image.device)
 
         # Forward Diffusion
+        x_t, t = forward_diffusion(image, t)
 
+        # Predict noise
+        noise_pred = model(x_t, t)
+
+        #Loss
 
 if __name__ == "__main__":
-    betas = beta_schedule(17, 0, 0.05)
-    random_timestep = get_random_timestep(betas, 0, len(betas)-1)
-    print(random_timestep)
+    x = ""
+    model(x)
