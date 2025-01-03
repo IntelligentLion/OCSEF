@@ -146,5 +146,3 @@ class Unet(nn.Module):
 
     def forward(self, x, t):
         t = t.unsqueeze(-1).type(torch.float)
-
-

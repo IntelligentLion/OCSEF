@@ -29,7 +29,7 @@ class Diffusion:
     def prepare_noise_schedule(self):
         return torch.linspace(self.beta_start, self.beta_end, self.noise_steps)
 
-    def forward_process(self, x_0, t):
+    def forward_process(self,x_0 , t):
         sqrt_alpha_hat = torch.sqrt(self.alpha_hat[t])[:, None, None, None] #I don't know what the "[:, None, None, None]" part is
         sqrt_one_minus_alpha_hat = torch.sqrt(1. - self.alpha_hat[t])[:, None, None, None]
         epsilon_val = torch.randn_like(x_0)
@@ -42,9 +42,9 @@ class Diffusion:
         logging.info(f"Sampling {n} new images...")
         model.eval()
         with torch.no_grad():
-            x = torch.randn((n, 3, self.img_size, self.img_size)).to(self.device)
+            x = torch.randn((n, 3, self.img_size, self.img_size)).to(self.device) # noised image
             for i in tqdm(reversed(range(1, self.noise_steps)), position=0):
-                t = (torch.ones(n) * i).long().to(self.device)
+                t = (torch.ones(n) * i).long().to(self.device) # random timestep
                 predicted_noise = model(x, t)
                 alpha = self.alpha[t][:, None, None, None]
                 alpha_hat = self.alpha_hat[t][:, None, None, None]
