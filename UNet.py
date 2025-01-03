@@ -18,7 +18,7 @@ def crop_img(tensor, target_tensor):
     return tensor[:, :, delta:tensor_size-delta, delta:tensor_size-delta]
 
 def doubleConv2d(in_c, out_c):
-    conv = nn.Sequential(
+    conv = nn.Sequential(?
         nn.Conv2d(in_c, out_c, kernel_size=3),
         nn.ReLU(),
         nn.Conv2d(out_c, out_c, kernel_size=3),
