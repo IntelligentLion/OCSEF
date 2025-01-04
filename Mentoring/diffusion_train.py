@@ -35,6 +35,7 @@ class UNet(nn.Module):
     def forward(self, x, t):
         t_embed = torch.rand_like(x) * t.view(-1, 1, 1, 1)
         x = torch.cat([x, t_embed], dim=1)
+        print(x.size())
         x = self.encoder(x)
         x = self.middle(x)
         x = self.decoder(x)
@@ -73,7 +74,7 @@ def reverse_diffusion_step(x_t, t, model, betas):
 
 # Hyperparameters
 epochs = 1
-batch_size = 12
+batch_size = 2
 lr = 2e-4
 T = 5 # Number of timesteps in the forward diffusion process
 best_loss = float('inf')  # Initialize best loss with infinity
@@ -104,6 +105,7 @@ mse_loss = nn.MSELoss()
 # Calculate betas and alpha_bars once
 betas, alpha_bars = noise_schedule(T)
 
+"""
 # Diffusion Training Loop
 for epoch in range(epochs):
     print(f"Epoch [{epoch + 1}/{epochs}]")
@@ -143,50 +145,6 @@ for epoch in range(epochs):
         for i in range(T - 1, 0, -1):
             sample_noise = reverse_diffusion_step(sample_noise, torch.tensor([i]).to(x.device), model, betas)
         save_image(sample_noise, f"./checkpoints/diff_generated_images_epoch_{epoch + 1}.png")
-
-print("Training complete.")
-
-"""
-# Diffusion Training Loop
-for epoch in range(epochs):
-    print(f"Epoch [{epoch + 1}/{epochs}]")
-    epoch_loss = 0.0
-    for batch_idx, (x, _) in tqdm(enumerate(train_loader), total=len(train_loader)):
-        x = x.to('cuda' if torch.cuda.is_available() else 'cpu')
-        t = torch.randint(0, T, (x.size(0),)).to(x.device)  # Random time step for each image
-        betas = torch.linspace(0.0001, 0.02, T).to(x.device)  # Beta schedule
-
-        # Forward diffusion
-        x_t, noise = forward_diffusion(x, t, betas)
-
-        # Predict noise with the UNet model
-        noise_pred = model(x_t, t)
-
-        # Loss is between actual noise and predicted noise
-        loss = mse_loss(noise_pred, noise)
-
-        # Backpropagation and optimization
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        epoch_loss += loss.item()
-
-    avg_loss = epoch_loss / len(train_loader)
-    print(f"Epoch [{epoch + 1}/{epochs}] Loss: {avg_loss:.6f}")
-
-    # Save the best model based on lowest loss
-    if avg_loss < best_loss:
-        best_loss = avg_loss
-        torch.save(model.state_dict(), os.path.join(checkpoint_dir, 'best_model.pth'))
-        print(f"New best model saved with loss {best_loss:.6f}")
-
-    # Save generated images after every epoch
-    with torch.no_grad():
-        sample_noise = torch.randn((64, 1, 28, 28)).to(x.device)
-        for i in range(T - 1, 0, -1):
-            sample_noise = reverse_diffusion_step(sample_noise, torch.tensor([i]).to(x.device), model, betas)
-        save_image(sample_noise, f"diff_generated_images_epoch_{epoch + 1}.png")
 
 print("Training complete.")
 """

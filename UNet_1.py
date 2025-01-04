@@ -1,14 +1,20 @@
 import torch
 import torch.nn as nn
+import torchvision
 import torchvision.transforms as transforms
+from torchvision.transforms import v2
 from torchvision.datasets.folder import default_loader
+from torchvision import datasets, transforms
 from PIL import Image
 from torch.utils.data import random_split, DataLoader, Dataset
 from torchvision.utils import save_image
-from torch import dataset, optim
-from dataset import MNIST
+from torch import optim
 import tqdm
 import pandas as pd
+import os
+import argparse
+import csv
+
 
 def crop_img(tensor, target_tensor):
     tensor_size = tensor.size()[2]
@@ -18,7 +24,7 @@ def crop_img(tensor, target_tensor):
     return tensor[:, :, delta:tensor_size-delta, delta:tensor_size-delta]
 
 def doubleConv2d(in_c, out_c):
-    conv = nn.Sequential(?
+    conv = nn.Sequential(
         nn.Conv2d(in_c, out_c, kernel_size=3),
         nn.ReLU(),
         nn.Conv2d(out_c, out_c, kernel_size=3),
@@ -52,7 +58,10 @@ class UNet(nn.Module):
         self.out = nn.Conv2d(64, 2, kernel_size=1)
 
 
-    def forward(self, image):
+    def forward(self, image, t):
+        t_embed = torch.rand_like(image) * t.view(-1, 1, 1, 1)
+        image = torch.cat([image, t_embed], dim=1)
+        print(image.size())
         # encoder
         x1 = self.doubleConv_1(image) ##
         x2 = self.maxPool_2x2(x1)
@@ -89,6 +98,7 @@ class UNet(nn.Module):
 
         print(output.size())
 
+
 class CustomDataset(Dataset):
     def __init__(self, dataframe, transform=None):
         self.dataframe = dataframe
@@ -105,26 +115,6 @@ class CustomDataset(Dataset):
             image = self.transform(image)
         return image, label
 
-### Transformations
-transform = transforms.Compose([
-    transforms.Resize((args.image_size, args.image_size)),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomVerticalFlip(),
-    transforms.RandomRotation(10),
-    transforms.RandomResizedCrop(args.image_size)
-])
-
-### Load Data
-df_train = pd.read_csv("OCSEF/dataset/hemorrhage/hemorrhage_train.csv")
-df_val = pd.read_csv("OCSEF/dataset/hemorrhage/hemorrhage_val.csv")
-
-train_dataset = CustomDataset(dataframe=df_train, transform=transform)
-val_dataset = CustomDataset(dataframe=df_val, transform=transform)
-
-train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 
 # Betas and alphas
 timesteps = 200
@@ -140,7 +130,7 @@ def noise_schedule(t):
 
 def forward_diffusion(x_0, timestep):
     alpha_t_bar = alphas_total[timestep-1]
-    noise = torch.randn_like(x_0)
+    noise = torch.randn(size = x_0.size())
 
     alpha_t_bar = alpha_t_bar.view(-1, 1, 1, 1)
     x_t = torch.sqrt(alpha_t_bar) * x_0 + torch.sqrt(1-alpha_t_bar) * noise
@@ -155,18 +145,50 @@ def reverse_diffusion(x_t, model, t, betas): # Watch the video explaining the re
 
 # Hyperparameters
 EPOCHS = 10
-lr = 1e-4 #karapathy constant
+lr = 1e-4 # karapathy constant
 BATCH_SIZE = 12
 best_loss = float('inf')
 
-# Dataset and Dataloader
-dataset_path = "~/OCSEF/dataset/hemorrhage/hemorrhage_train.csv"
-data_Transform = transforms.Compose([transforms.ToTensor()])
+# Model Checkpoint Path
+checkpoint_dir = './checkpoints'
+if not os.path.exists(checkpoint_dir):
+    os.mkdir(checkpoint_dir)
 
-train_dataset = MNIST(root=dataset_path, train=True, download=True, transform=data_Transform)
+# Dataset and Dataloader
+#dataset_path = "~/OCSEF/dataset/hemorrhage/hemorrhage_train.csv"
+#data_Transform = transforms.Compose([transforms.ToTensor()])
+
+#train_dataset = MNIST(root=dataset_path, train=True, download=True, transform=data_Transform)
+
+dataset_path = '/Users/hatapd/PycharmProjects/OCSEF/archive/head_ct'
+
+padding_top = 12
+padding_bottom = 12
+padding_left = 12
+padding_right = 12
+
+transform = transforms.Compose([
+    transforms.Resize((256, 256)),
+    transforms.Pad(padding=2, fill=0, padding_mode='constant'),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
+
+train_dataset = datasets.ImageFolder(root=dataset_path)
+
+"""
+test_dir = './test'
+if not os.path.exists(test_dir):
+    os.mkdir(test_dir)
+
+for image in dataset_path:
+    image = transform(image)
+    print(image.size())
+    save_image(image, test_dir)
+"""
 
 dataset_size = len(train_dataset)
-train_size = int(0.5 * dataset_size)
+train_size = int(0.8 * dataset_size)
 val_size = dataset_size - train_size
 
 train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
@@ -174,22 +196,51 @@ train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
 # Initialize model
 model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
-optimizer = optim.Adam(model.paramters(), lr=lr)
+optimizer = optim.Adam(model.parameters(), lr=lr)
+mse_loss = nn.MSELoss()
+
+# Calculate the betas and alpha_bars once
+betas, alpha_bars = noise_schedule(timesteps)
+
 for epoch in range(EPOCHS):
     print(f"Epoch: {epoch+1}/{EPOCHS}")
     epoch_loss = 0
-    for batch_idx, (image, _) in tqdm(enumerate(train_loader), total=len(train_loader)):
+    for batch_idx, (image) in (train_loader):
+        image = transform(image)
+        print(image.size())
         image = image.to('cuda' if torch.cuda.is_available() else 'cpu')
         t = torch.randint(0, timesteps, (1,)).to(image.device)
 
         # Forward Diffusion
-        x_t, t = forward_diffusion(image, t)
+        x_t, noise = forward_diffusion(image, t)
 
         # Predict noise
         noise_pred = model(x_t, t)
 
         #Loss
+        loss = mse_loss(noise_pred, noise)
 
-if __name__ == "__main__":
-    x = ""
-    model(x)
+        # Backpropagation and optimization
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        epoch_loss += loss.item()
+
+    avg_loss = epoch_loss / len(train_loader)
+    print(f"Epoch [{epoch+1}/{EPOCHS}], Loss: {avg_loss:.6f}")
+
+    # Save the best model based on lowest loss
+    if avg_loss < best_loss:
+        best_loss = avg_loss
+        torch.save(model.state_dict(), os.path.join(checkpoint_dir, 'best_model.pth'))
+        print(f"New best model saved wit loss {best_loss:.6f}")
+
+    # Save generated images after every epoch
+    with torch.no_grad():
+        sample_noise = torch.randn((64, 1, 28, 28)).to(image.device)
+        for i in range(timesteps - 1, 0, -1):
+            sample_noise = reverse_diffusion(sample_noise, torch.tensor([i]).to(image.device), model, betas)
+        save_image(sample_noise, f"./checkpoints/diff_generated_images_epeoch_{epoch+1}.png")
+
+print("Training complete.")
