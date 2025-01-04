@@ -9,15 +9,18 @@ from PIL import Image
 from torch.utils.data import random_split, DataLoader, Dataset
 from torchvision.utils import save_image
 from torch import optim
-import tqdm
+from tqdm import tqdm
 import pandas as pd
 import os
 import argparse
 import csv
 
 
+
+## NEED TO CHANGE CHANNEL SIZE OF INPUT TO 2 channels, AS IT SHOULD BE 2 NOT 6!
+
 def crop_img(tensor, target_tensor):
-    tensor_size = tensor.size()[2]
+    tensor_size = tensor.size()[2] # (bs, c, h, w)
     target_size = target_tensor.size()[2]
     delta = tensor_size - target_size
     delta = delta // 2
@@ -82,7 +85,7 @@ class UNet(nn.Module):
         x_up_2 = self.up_trans_2(x_cat_1)
         y_2 = crop_img(x5, x_up_2)
         z2 = torch.cat([x_up_2, y_2], 1)
-        x_cat_2 = self.up_conv_2(z2)
+        x_cat_2 = self.up_conv_2(z2)  ######################
 
         x_up_3 = self.up_trans_3(x_cat_2)
         y_3 = crop_img(x3, x_up_3)
@@ -154,38 +157,14 @@ checkpoint_dir = './checkpoints'
 if not os.path.exists(checkpoint_dir):
     os.mkdir(checkpoint_dir)
 
-# Dataset and Dataloader
-#dataset_path = "~/OCSEF/dataset/hemorrhage/hemorrhage_train.csv"
-#data_Transform = transforms.Compose([transforms.ToTensor()])
-
-#train_dataset = MNIST(root=dataset_path, train=True, download=True, transform=data_Transform)
-
 dataset_path = '/Users/hatapd/PycharmProjects/OCSEF/archive/head_ct'
-
-padding_top = 12
-padding_bottom = 12
-padding_left = 12
-padding_right = 12
 
 transform = transforms.Compose([
     transforms.Resize((256, 256)),
-    transforms.Pad(padding=2, fill=0, padding_mode='constant'),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    transforms.ToTensor()
 ])
 
-train_dataset = datasets.ImageFolder(root=dataset_path)
-
-"""
-test_dir = './test'
-if not os.path.exists(test_dir):
-    os.mkdir(test_dir)
-
-for image in dataset_path:
-    image = transform(image)
-    print(image.size())
-    save_image(image, test_dir)
-"""
+train_dataset = datasets.ImageFolder(root=dataset_path, transform=transform)
 
 dataset_size = len(train_dataset)
 train_size = int(0.8 * dataset_size)
@@ -193,6 +172,7 @@ val_size = dataset_size - train_size
 
 train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+
 
 # Initialize model
 model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
@@ -205,9 +185,9 @@ betas, alpha_bars = noise_schedule(timesteps)
 for epoch in range(EPOCHS):
     print(f"Epoch: {epoch+1}/{EPOCHS}")
     epoch_loss = 0
-    for batch_idx, (image) in (train_loader):
-        image = transform(image)
+    for batch_idx, (image, _) in tqdm(enumerate(train_loader), total=len(train_loader)):
         print(image.size())
+
         image = image.to('cuda' if torch.cuda.is_available() else 'cpu')
         t = torch.randint(0, timesteps, (1,)).to(image.device)
 
