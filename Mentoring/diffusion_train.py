@@ -105,7 +105,7 @@ mse_loss = nn.MSELoss()
 # Calculate betas and alpha_bars once
 betas, alpha_bars = noise_schedule(T)
 
-"""
+
 # Diffusion Training Loop
 for epoch in range(epochs):
     print(f"Epoch [{epoch + 1}/{epochs}]")
@@ -147,4 +147,4 @@ for epoch in range(epochs):
         save_image(sample_noise, f"./checkpoints/diff_generated_images_epoch_{epoch + 1}.png")
 
 print("Training complete.")
-"""
+
