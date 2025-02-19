@@ -15,6 +15,8 @@ import pandas as pd
 import os
 import argparse
 import csv
+import medmnist
+from medmnist import OrganAMNIST
 
 from test1.test_VAE1 import VariationalAutoEncoder
 
@@ -380,10 +382,43 @@ class CustomCrossAttention(nn.Module):
         )
 
     def forward(self, x, context):
-        b, n, _ = x.shape
+        b, n, _, h = *x.shape, self.heads
         h = self.heads
         x = self.norm(x)
-        context = torch.cat((x, context), dim=1)
+
+
+train_loader = OrganAMNIST(split='train', download=True, size = 32)
+val_loader = OrganAMNIST(split='val', download=True, size = 32)
+
+model = VisionTransformer()
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
+criterion = nn.CrossEntropyLoss()
+
+
+model.train()  # Set model to training mode
+for images, labels in train_loader:
+    optimizer.zero_grad()  # Reset gradients
+    outputs = model(images)  # Forward pass
+    loss = criterion(outputs, labels)  # Compute loss
+    loss.backward()  # Backward pass
+    optimizer.step()  # Update weights
+
+    # Validation step
+model.eval()  # Set model to evaluation mode
+with torch.no_grad():
+    for images, labels in val_loader:
+        outputs = model(images)
+        val_loss = criterion(outputs, labels)
+            # Compute accuracy or other metrics
+
+# Save model
+if avg_loss < best_loss:
+        best_loss = avg_loss
+        torch.save(model.state_dict(), os.path.join(checkpoint_dir, 'best_model.pth'))
+        print(f"New best model saved wit loss {best_loss:.6f}")
+
+        
+
 
 
 

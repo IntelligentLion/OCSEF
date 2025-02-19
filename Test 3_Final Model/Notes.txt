@@ -13,3 +13,17 @@ Forward Process
     Signal to Noise(can be one step)
 Reverse Process
 
+Cross Attention Custom Notes:
+    Query: Current Frame
+    Key: Reference Frames
+    Value: Reference Frames
+
+    Cross attention is used to condition the diffusion model on the reference frames.
+    The query is the current frame, and the key and value are the reference frames.
+    This allows the model to attend to the reference frames and use their information to generate the current frame.
+
+
+Current Constraints:
+
+
+
