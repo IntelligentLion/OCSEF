@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
+from torchvision.io import read_image
 from torchvision.transforms import v2
 from torchvision.datasets.folder import default_loader
 from torchvision import datasets, transforms
@@ -102,23 +103,6 @@ class UNet(nn.Module):
         print(output.size())
 
 
-class CustomDataset(Dataset):
-    def __init__(self, dataframe, transform=None):
-        self.dataframe = dataframe
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.dataframe)
-
-    def __getitem__(self, idx):
-        img_path = self.dataframe.iloc[idx]['dir']
-        image = default_loader(img_path)
-        label = int(self.dataframe.iloc[idx]['label'])
-        if self.transform:
-            image = self.transform(image)
-        return image, label
-
-
 # Betas and alphas
 timesteps = 200
 betas_total = torch.linspace(0.01, 0.5, timesteps)
@@ -157,14 +141,31 @@ checkpoint_dir = './checkpoints'
 if not os.path.exists(checkpoint_dir):
     os.mkdir(checkpoint_dir)
 
-dataset_path = '/Users/hatapd/PycharmProjects/OCSEF/archive/head_ct'
+class CustomDataset(Dataset):
+    def __init__(self, annotations_file, img_dir, transform, target_transform=None):
+        self.img_labels = pd.read_csv(annotations_file)
+        self.img_dir = img_dir
+        self.transform = transform
+        self.target_transform = target_transform
 
-transform = transforms.Compose([
-    transforms.Resize((256, 256)),
-    transforms.ToTensor()
-])
+    def __len__(self):
+        return len(self.img_labels)
 
-train_dataset = datasets.ImageFolder(root=dataset_path, transform=transform)
+    def __getitem__(self, idx):
+        img_path = os.path.join(self.img_dir, self.img_labels.iloc[idx, 0])
+        image = read_image(img_path)
+        label = self.img_labels.iloc[idx, 1]
+        if self.transform:
+            image = self.transform(image)
+        if self.target_transform:
+            label = self.target_transform(label)
+        return image, label
+
+dataset_path = '/Users/hatapd/PycharmProjects/OCSEF/archive/head_ct/head_ct_train'
+labels = '/Users/hatapd/PycharmProjects/OCSEF/archive/head_ct/labels.csv'
+transform = transforms.Compose([transforms.ToTensor()])
+
+Dataset = CustomDataset(annotations_file=labels, img_dir=dataset_path, transform=transform)
 
 dataset_size = len(train_dataset)
 train_size = int(0.8 * dataset_size)
