@@ -7,6 +7,8 @@ from torch import optim
 from tqdm import tqdm
 import logging
 from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import Dataset, DataLoader
+
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s: %(message)s", level=logging.INFO, datafmt="%I:%M:%S")
 

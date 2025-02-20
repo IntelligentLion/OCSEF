@@ -4,12 +4,15 @@ import torch.optim as optim
 from sympy.abc import alpha
 from torchvision.datasets import MNIST
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader
+from PIL import Image
 from torchvision.utils import save_image
 from tqdm import tqdm
 from torch.utils.data import random_split
 import math
 import os
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
+
 
 
 # Model: UNet architecture (simplified)
@@ -84,20 +87,52 @@ checkpoint_dir = './checkpoints'
 if not os.path.exists(checkpoint_dir):
     os.makedirs(checkpoint_dir)
 
-# Dataset and Dataloader
-dataset_path = '~/OCSEF/dataset/'
-mnist_transform = transforms.Compose([transforms.ToTensor()])
+class ImageDataset(Dataset):
+    def __init__(self, img_dir, transform=None):
+        self.img_dir = img_dir
+        self.img_names = os.listdir(img_dir)
+        self.transform = transform
 
-train_dataset = MNIST(root=dataset_path, train=True, download=True, transform=mnist_transform)
+    def __len__(self):
+        return len(self.img_names)
 
-dataset_size = len(train_dataset)
-train_size = int(0.005 * dataset_size)
-val_size = dataset_size - train_size
+    def __getitem__(self, idx):
+        img_name = self.img_names[idx]
+        img_path = os.path.join(self.img_dir, img_name)
+        image = Image.open(img_path)
+        if self.transform:
+            image = self.transform(image)
+        return image
 
-train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+img_dir = '/Users/hatapd/PycharmProjects/OCSEF/archive/head_ct/head_ct_train'
+dataset = ImageDataset(img_dir)
 
 # Initialize model, optimizer, loss function
+#model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
+#optimizer = optim.Adam(model.parameters(), lr=lr)
+#mse_loss = nn.MSELoss()
+
+# Calculate betas and alpha_bars once
+#betas, alpha_bars = noise_schedule(T)
+
+#train_dataset = MNIST(root=dataset_path, train=True, download=True, transform=mnist_transform)
+
+#dataset_size = len(train_dataset)
+#train_size = int(0.005 * dataset_size)
+#val_size = dataset_size - train_size
+
+#train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
+#train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
+# Initialize model, optimizer, loss function
+#model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
+#optimizer = optim.Adam(model.parameters(), lr=lr)
+#mse_loss = nn.MSELoss()
+
+# Calculate betas and alpha_bars once
+#betas, alpha_bars = noise_schedule(T)
+
+
 model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
 optimizer = optim.Adam(model.parameters(), lr=lr)
 mse_loss = nn.MSELoss()
@@ -106,16 +141,43 @@ mse_loss = nn.MSELoss()
 betas, alpha_bars = noise_schedule(T)
 
 
+for i in range(len(dataset)):
+    epoch_loss = 0
+    image = dataset[i]
+    results = transforms.ToTensor()(image)
+    image = results.to('cuda' if torch.cuda.is_available() else 'cpu')
+
+    t = torch.randint(0, T, size=results.size())  # Random time step for each image
+    x_t, noise = forward_diffusion(results, t)
+    noise_pred = model(x_t, t)
+
+    loss = mse_loss(noise_pred, noise)
+
+    # Backpropagation and optimization
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    epoch_loss += loss.item()
+
+
+""" 
+    
 # Diffusion Training Loop
 for epoch in range(epochs):
     print(f"Epoch [{epoch + 1}/{epochs}]")
     epoch_loss = 0.0
-    for batch_idx, (x, _) in tqdm(enumerate(train_loader), total=len(train_loader)):
-        x = x.to('cuda' if torch.cuda.is_available() else 'cpu')
-        t = torch.randint(0, T, (x.size(0),)).to(x.device)  # Random time step for each image
+
+    image = Image.open(dataset_path)
+    results = transforms.ToTensor()(image)
+    print(results)
+
+    
+        #image = image.to('cuda' if torch.cuda.is_available() else 'cpu')
+        t = torch.randint(0, T, size = results.size())  # Random time step for each image
 
         # Forward diffusion
-        x_t, noise = forward_diffusion(x, t)
+        x_t, noise = forward_diffusion(results, t)
 
         # Predict noise with the UNet model
         noise_pred = model(x_t, t)
@@ -129,8 +191,8 @@ for epoch in range(epochs):
         optimizer.step()
 
         epoch_loss += loss.item()
-
-    avg_loss = epoch_loss / len(train_loader)
+        
+    avg_loss = epoch_loss / len(dataset_path)
     print(f"Epoch [{epoch + 1}/{epochs}] Loss: {avg_loss:.6f}")
 
     # Save the best model based on lowest loss
@@ -147,4 +209,4 @@ for epoch in range(epochs):
         save_image(sample_noise, f"./checkpoints/diff_generated_images_epoch_{epoch + 1}.png")
 
 print("Training complete.")
-
+"""

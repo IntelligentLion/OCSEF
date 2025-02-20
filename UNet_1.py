@@ -16,8 +16,6 @@ import os
 import argparse
 import csv
 
-
-
 ## NEED TO CHANGE CHANNEL SIZE OF INPUT TO 2 channels, AS IT SHOULD BE 2 NOT 6!
 
 def crop_img(tensor, target_tensor):
@@ -142,36 +140,30 @@ if not os.path.exists(checkpoint_dir):
     os.mkdir(checkpoint_dir)
 
 class CustomDataset(Dataset):
-    def __init__(self, annotations_file, img_dir, transform, target_transform=None):
-        self.img_labels = pd.read_csv(annotations_file)
-        self.img_dir = img_dir
+    def __init__(self, csv_file, transform=None):
+        self.data = pd.read_csv(csv_file)
         self.transform = transform
-        self.target_transform = target_transform
 
     def __len__(self):
-        return len(self.img_labels)
+        return len(self.data)
 
     def __getitem__(self, idx):
-        img_path = os.path.join(self.img_dir, self.img_labels.iloc[idx, 0])
-        image = read_image(img_path)
-        label = self.img_labels.iloc[idx, 1]
+        sample = self.data.iloc[idx]
+        features = torch.tensor(sample.drop('label').values, dtype=torch.float32)
+        label = torch.tensor(sample['label'], dtype=torch.long)
         if self.transform:
-            image = self.transform(image)
-        if self.target_transform:
-            label = self.target_transform(label)
-        return image, label
+            features = self.transform(features)
+        return features, label
 
 dataset_path = '/Users/hatapd/PycharmProjects/OCSEF/archive/head_ct/head_ct_train'
-labels = '/Users/hatapd/PycharmProjects/OCSEF/archive/head_ct/labels.csv'
-transform = transforms.Compose([transforms.ToTensor()])
+Dataset = datasets.ImageFolder(root=dataset_path, transform=)
 
-Dataset = CustomDataset(annotations_file=labels, img_dir=dataset_path, transform=transform)
 
-dataset_size = len(train_dataset)
+dataset_size = len(Dataset)
 train_size = int(0.8 * dataset_size)
 val_size = dataset_size - train_size
 
-train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
+train_dataset, val_dataset = random_split(Dataset, [train_size, val_size])
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
 
