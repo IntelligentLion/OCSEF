@@ -7,6 +7,7 @@ from torchvision.transforms import v2
 from torchvision.datasets.folder import default_loader
 from torchvision import datasets, transforms
 from PIL import Image
+import torch.utils.data as data
 from torch.utils.data import random_split, DataLoader, Dataset
 from torchvision.utils import save_image
 from torch import optim
@@ -17,6 +18,7 @@ import argparse
 import csv
 import medmnist
 from medmnist import OrganAMNIST
+from medmnist.info import INFO
 
 from test1.test_VAE1 import VariationalAutoEncoder
 
@@ -50,9 +52,9 @@ class PatchEmbed(nn.Module):
 
     def __init__(self, img_size, patch_size, in_chans=3, embed_dim=768):
         super().__init__()
-        self.img_size = img_size
-        self.patch_size = patch_size
-        self.n_patches = (img_size // patch_size) * 2
+        self.img_size = int(img_size)
+        self.patch_size = int(patch_size)
+        self.n_patches = (img_size // patch_size) ** 2
 
         self.proj = nn.Conv2d(
             in_chans,
@@ -267,7 +269,7 @@ class Block(nn.Module):
         self.attn = Attention(
             dim,
             n_heads = n_heads,
-            qkv = qkv_bias,
+            qkv_bias = qkv_bias,
             attn_p = attn_p,
             proj_p = p
         )
@@ -300,20 +302,7 @@ class Block(nn.Module):
         return x
 
 class VisionTransformer(nn.Module):
-    def __init__(
-            self,
-            img_size = 384,
-            patch_size = 16,
-            in_chans = 3,
-            n_classes = 1000,
-            embed_dim = 768,
-            depth = 12,
-            n_heads = 12,
-            mlp_ratio = 4,
-            qkv_bias = True,
-            p = 0.,
-            attn_p = 0.
-    ):
+    def __init__(self, img_size = 384, patch_size = 16, in_chans = 3, n_classes = 1000, embed_dim = 128, depth = 12, n_heads = 12, mlp_ratio = 4, qkv_bias = True, p = 0., attn_p = 0.):
         super().__init__()
 
         self.patch_embed = PatchEmbed(
@@ -345,23 +334,23 @@ class VisionTransformer(nn.Module):
         self.norm = nn.LayerNorm(embed_dim, eps=1e-6)
         self.head = nn.Linear(embed_dim, n_classes)
 
-        def forward(self, x):
-            n_samples = x.shape[0]
-            x = self.patch_embed(x)
+    def forward(self, x):
+        n_samples = x.shape[0]
+        x = self.patch_embed(x)
 
-            cls_token = self.cls_token.expand(n_samples, -1, -1) #(n_samples, 1, embed_dim)
-            x = torch.cat((cls_token, x), dim=1) #(n_samples, 1 + n_patches, embed_dim)
-            x = x + self.pos_embed #(n_samples, 1 + n_patches, embed_dim)
-            x = self.pos_drop(x)
+        cls_token = self.cls_token.expand(n_samples, -1, -1) #(n_samples, 1, embed_dim)
+        x = torch.cat((cls_token, x), dim=1) #(n_samples, 1 + n_patches, embed_dim)
+        x = x + self.pos_embed #(n_samples, 1 + n_patches, embed_dim)
+        x = self.pos_drop(x)
 
-            for block in self.blocks:
-                x = block(x)
+        for block in self.blocks:
+            x = block(x)
 
-            x = self.norm(x)
-            cls_token_final = x[:0] # Just the CLS token
-            x = self.head(cls_token_final)
+        x = self.norm(x)
+        cls_token_final = x[:0] # Just the CLS token
+        x = self.head(cls_token_final)
 
-            return x
+        return x
 
 class CustomCrossAttention(nn.Module):
     def __init__(self, img_size=512, patch_size=32, heads=8, head_dim=64, dropout=0.):
@@ -387,36 +376,122 @@ class CustomCrossAttention(nn.Module):
         x = self.norm(x)
 
 
-train_loader = OrganAMNIST(split='train', download=True, size = 32)
-val_loader = OrganAMNIST(split='val', download=True, size = 32)
+# Device configuration
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-model = VisionTransformer()
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+# Hyperparameters
+batch_size = 128
+learning_rate = 3e-4
+num_epochs = 1
+img_size=28
+patch_size=7
+in_chans=1
+embed_dim=128
+depth=12
+n_heads=12
+mlp_ratio=4
+qkv_bias=True
+p=0.
+attn_p=0.
+
+# Data preprocessing
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.0], std=[1.0])
+])
+
+# Load datasets
+data_flag = 'organamnist'
+# data_flag = 'breastmnist'
+
+info = INFO[data_flag]
+task = info['task']
+n_channels = info['n_channels']
+n_classes = len(info['label'])
+
+DataClass = getattr(medmnist, info['python_class'])
+
+
+# Initialize model
+model = VisionTransformer(img_size = img_size, patch_size = patch_size, in_chans = in_chans, n_classes = n_classes, embed_dim = embed_dim, depth = depth, n_heads = n_heads, mlp_ratio = mlp_ratio, qkv_bias = qkv_bias, p = p, attn_p = attn_p).to(device)
+# load the data
+train_dataset = DataClass(split='train', transform=transform, download=True)
+test_dataset = DataClass(split='test', transform=transform, download=True)
+
+pil_dataset = DataClass(split='train', download=True)
+
+# encapsulate data into dataloader form
+train_loader = data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = data.DataLoader(dataset=train_dataset, batch_size=2*batch_size, shuffle=False)
+test_loader = data.DataLoader(dataset=test_dataset, batch_size=2*batch_size, shuffle=False)
+
+# Loss and optimizer
 criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
+# Training loop
+for epoch in range(num_epochs):
+    model.train()
+    train_loss, correct, total = 0.0, 0, 0
 
-model.train()  # Set model to training mode
-for images, labels in train_loader:
-    optimizer.zero_grad()  # Reset gradients
-    outputs = model(images)  # Forward pass
-    loss = criterion(outputs, labels)  # Compute loss
-    loss.backward()  # Backward pass
-    optimizer.step()  # Update weights
+    for inputs, targets in train_loader:
+        inputs = inputs.to(device)
+        targets = targets.squeeze().long().to(device)
 
-    # Validation step
-model.eval()  # Set model to evaluation mode
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, targets)
+        loss.backward()
+        optimizer.step()
+
+        train_loss += loss.item()
+        _, predicted = outputs.max(1)
+        total += targets.size(0)
+        correct += predicted.eq(targets).sum().item()
+
+    # Validation
+    model.eval()
+    val_loss, val_correct, val_total = 0.0, 0, 0
+
+    with torch.no_grad():
+        for inputs, targets in val_loader:
+            inputs = inputs.to(device)
+            targets = targets.squeeze().long().to(device)
+
+            outputs = model(inputs)
+            val_loss += criterion(outputs, targets).item()
+
+            _, predicted = outputs.max(1)
+            val_total += targets.size(0)
+            val_correct += predicted.eq(targets).sum().item()
+
+    # Print statistics
+    train_acc = 100. * correct / total
+    val_acc = 100. * val_correct / val_total
+    print(f"Epoch [{epoch + 1}/{num_epochs}] | "
+          f"Train Loss: {train_loss / len(train_loader):.4f} | "
+          f"Train Acc: {train_acc:.2f}% | "
+          f"Val Loss: {val_loss / len(val_loader):.4f} | "
+          f"Val Acc: {val_acc:.2f}%")
+
+# Test the model
+model.eval()
+test_loss, test_correct, test_total = 0.0, 0, 0
+
 with torch.no_grad():
-    for images, labels in val_loader:
-        outputs = model(images)
-        val_loss = criterion(outputs, labels)
-            # Compute accuracy or other metrics
+    for inputs, targets in test_loader:
+        inputs = inputs.to(device)
+        targets = targets.squeeze().long().to(device)
 
-# Save model
-if avg_loss < best_loss:
-        best_loss = avg_loss
-        torch.save(model.state_dict(), os.path.join(checkpoint_dir, 'best_model.pth'))
-        print(f"New best model saved wit loss {best_loss:.6f}")
+        outputs = model(inputs)
+        test_loss += criterion(outputs, targets).item()
 
+        _, predicted = outputs.max(1)
+        test_total += targets.size(0)
+        test_correct += predicted.eq(targets).sum().item()
+
+test_acc = 100. * test_correct / test_total
+print(f"\nTest Results | Loss: {test_loss / len(test_loader):.4f} | Acc: {test_acc:.2f}%")
         
 
 
