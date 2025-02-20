@@ -107,31 +107,6 @@ class ImageDataset(Dataset):
 img_dir = '/Users/hatapd/PycharmProjects/OCSEF/archive/head_ct/head_ct_train'
 dataset = ImageDataset(img_dir)
 
-# Initialize model, optimizer, loss function
-#model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
-#optimizer = optim.Adam(model.parameters(), lr=lr)
-#mse_loss = nn.MSELoss()
-
-# Calculate betas and alpha_bars once
-#betas, alpha_bars = noise_schedule(T)
-
-#train_dataset = MNIST(root=dataset_path, train=True, download=True, transform=mnist_transform)
-
-#dataset_size = len(train_dataset)
-#train_size = int(0.005 * dataset_size)
-#val_size = dataset_size - train_size
-
-#train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
-#train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-
-# Initialize model, optimizer, loss function
-#model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
-#optimizer = optim.Adam(model.parameters(), lr=lr)
-#mse_loss = nn.MSELoss()
-
-# Calculate betas and alpha_bars once
-#betas, alpha_bars = noise_schedule(T)
-
 
 model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
 optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -141,11 +116,14 @@ mse_loss = nn.MSELoss()
 betas, alpha_bars = noise_schedule(T)
 
 
-for i in range(len(dataset)):
+for i in range(5):
     epoch_loss = 0
     image = dataset[i]
-    results = transforms.ToTensor()(image)
-    image = results.to('cuda' if torch.cuda.is_available() else 'cpu')
+    results = transforms.Resize(256)(image)
+    results = transforms.ToTensor()(results)
+
+    results = results.to('cuda' if torch.cuda.is_available() else 'cpu')
+
 
     t = torch.randint(0, T, size=results.size())  # Random time step for each image
     x_t, noise = forward_diffusion(results, t)
@@ -161,7 +139,7 @@ for i in range(len(dataset)):
     epoch_loss += loss.item()
 
 
-""" 
+"""
     
 # Diffusion Training Loop
 for epoch in range(epochs):
