@@ -161,8 +161,8 @@ class CustomDataset(Dataset):
             label = self.target_transform(label)
         return image, label
 
-dataset_path = 'OCSEF/archive/head_ct/head_ct_train'
-labels = 'hatapd/PycharmProjects/OCSEF/archive/head_ct/labels.csv'
+dataset_path = '/Users/hatapd/PycharmProjects/OCSEF/archive/head_ct/head_ct_train'
+labels = '/Users/hatapd/PycharmProjects/OCSEF/archive/head_ct/labels.csv'
 transform = transforms.Compose([transforms.ToTensor()])
 
 Dataset = CustomDataset(annotations_file=labels, img_dir=dataset_path, transform=transform)

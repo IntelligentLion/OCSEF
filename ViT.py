@@ -12,13 +12,12 @@ from torch.utils.data import random_split, DataLoader, Dataset
 from torchvision.utils import save_image
 from torch import optim
 from tqdm import tqdm
-import pandas as pd
 import os
 import argparse
-import csv
 import medmnist
 from medmnist import OrganAMNIST
 from medmnist.info import INFO
+import pandas as pd
 
 from test1.test_VAE1 import VariationalAutoEncoder
 
@@ -375,7 +374,35 @@ class CustomCrossAttention(nn.Module):
         h = self.heads
         x = self.norm(x)
 
+class CustomDataset(Dataset):
+    def __init__(self, csv_file, transform=None):
+        self.data = pd.read_csv(csv_file)
+        self.transform = transform
 
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        sample = self.data.iloc[idx]
+        features = torch.tensor(sample.drop('label').values, dtype=torch.float32)
+        label = torch.tensor(sample['label'], dtype=torch.long)
+        if self.transform:
+            features = self.transform(features)
+        return features, label
+
+image = Image.open('/Users/hatapd/PycharmProjects/OCSEF/archive/head_ct/head_ct_train/000.png')
+results = transforms.ToTensor()(image)
+print(results)
+
+csv_file = '/Users/hatapd/PycharmProjects/OCSEF/archive/labels.csv'
+dataset = CustomDataset(csv_file)
+dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+
+for batch_idx, (features, labels) in enumerate(dataloader):
+    # Use features and labels in your training loop
+    print(f"Batch {batch_idx}: Features shape={features.shape}, Labels shape={labels.shape}")
+
+"""
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -400,6 +427,8 @@ transform = transforms.Compose([
     transforms.Normalize(mean=[0.0], std=[1.0])
 ])
 
+
+
 # Load datasets
 data_flag = 'organamnist'
 # data_flag = 'breastmnist'
@@ -411,12 +440,13 @@ n_classes = len(info['label'])
 
 DataClass = getattr(medmnist, info['python_class'])
 
-
-# Initialize model
-model = VisionTransformer(img_size = img_size, patch_size = patch_size, in_chans = in_chans, n_classes = n_classes, embed_dim = embed_dim, depth = depth, n_heads = n_heads, mlp_ratio = mlp_ratio, qkv_bias = qkv_bias, p = p, attn_p = attn_p).to(device)
 # load the data
 train_dataset = DataClass(split='train', transform=transform, download=True)
 test_dataset = DataClass(split='test', transform=transform, download=True)
+
+# Initialize model
+model = VisionTransformer(img_size = img_size, patch_size = patch_size, in_chans = in_chans, n_classes = n_classes, embed_dim = embed_dim, depth = depth, n_heads = n_heads, mlp_ratio = mlp_ratio, qkv_bias = qkv_bias, p = p, attn_p = attn_p).to(device)
+
 
 pil_dataset = DataClass(split='train', download=True)
 
@@ -496,7 +526,7 @@ print(f"\nTest Results | Loss: {test_loss / len(test_loader):.4f} | Acc: {test_a
 
 
 
-
+"""
 
 
 
