@@ -1,3 +1,5 @@
+import pydicom
+from glob import glob
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -74,6 +76,37 @@ def reverse_diffusion_step(x_t, t, model, betas):
     noise_pred = model(x_t, t)
     return (x_t - beta_t * noise_pred) / torch.sqrt(alpha_t_bar)
 
+data_dir = '/Users/humza/PycharmProjects/OCSEF/dataset/ICH_train'
+dicom_files = sorted(glob(os.path.join(data_dir, "*.dcm")))
+
+def load_dicom_to_tensor(file_path):
+    # Load DICOM file
+    dicom = pydicom.dcmread(file_path)
+
+    # Print some basic metadata to verify correct reading
+    print(f"Processing file: {file_path}")
+    print(f"Patient ID: {dicom.PatientID if 'PatientID' in dicom else 'N/A'}")
+    print(f"Modality: {dicom.Modality if 'Modality' in dicom else 'N/A'}")
+
+    # Get pixel array and convert to float32
+    image = dicom.pixel_array.astype(np.float32)
+
+    # Ensure 2D image is in (H,W) format
+    if len(image.shape) == 2:
+        image = image[np.newaxis, ...]  # Add channel dimension: (1,H,W)
+    elif len(image.shape) == 3:
+        image = image[0:1, ...]  # Take first channel if multi-channel
+
+    # Convert to PyTorch tensor
+    tensor = torch.from_numpy(np.array(image).astype('float32'))
+    return tensor
+
+
+
+#batch = torch.stack(tensors)  # Shape: [batch_size, 1, H, W]
+#print(f"Batch shape: {batch.shape}")
+#batch = (batch - batch.min()) / (batch.max() - batch.min())
+#print(f"Normalized range: [{batch.min():.3f}, {batch.max():.3f}]")
 
 # Hyperparameters
 epochs = 1
@@ -87,25 +120,6 @@ checkpoint_dir = './checkpoints'
 if not os.path.exists(checkpoint_dir):
     os.makedirs(checkpoint_dir)
 
-class ImageDataset(Dataset):
-    def __init__(self, img_dir, transform=None):
-        self.img_dir = img_dir
-        self.img_names = os.listdir(img_dir)
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.img_names)
-
-    def __getitem__(self, idx):
-        img_name = self.img_names[idx]
-        img_path = os.path.join(self.img_dir, img_name)
-        image = Image.open(img_path)
-        if self.transform:
-            image = self.transform(image)
-        return image
-
-img_dir = '/Users/hatapd/PycharmProjects/OCSEF/archive/head_ct/head_ct_train'
-dataset = ImageDataset(img_dir)
 
 
 model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
@@ -114,21 +128,21 @@ mse_loss = nn.MSELoss()
 
 # Calculate betas and alpha_bars once
 betas, alpha_bars = noise_schedule(T)
+    
+# Diffusion Training Loop
+loss = 0
+for file_path in dicom_files:
+    tensor = load_dicom_to_tensor(file_path)
+    tensor = tensor.to('cuda')
+    t = torch.randint(0, T, size = tensor.size())  # Random time step for each image
 
+    # Forward diffusion
+    x_t, noise = forward_diffusion(tensor, t)
 
-for i in range(5):
-    epoch_loss = 0
-    image = dataset[i]
-    results = transforms.Resize(256)(image)
-    results = transforms.ToTensor()(results)
-
-    results = results.to('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-    t = torch.randint(0, T, size=results.size())  # Random time step for each image
-    x_t, noise = forward_diffusion(results, t)
+    # Predict noise with the UNet model
     noise_pred = model(x_t, t)
 
+    # Loss is between actual noise and predicted noise
     loss = mse_loss(noise_pred, noise)
 
     # Backpropagation and optimization
@@ -136,43 +150,13 @@ for i in range(5):
     loss.backward()
     optimizer.step()
 
-    epoch_loss += loss.item()
-
-
-"""
-    
-# Diffusion Training Loop
-for epoch in range(epochs):
-    print(f"Epoch [{epoch + 1}/{epochs}]")
-    epoch_loss = 0.0
-
-    image = Image.open(dataset_path)
-    results = transforms.ToTensor()(image)
-    print(results)
-
-    
-        #image = image.to('cuda' if torch.cuda.is_available() else 'cpu')
-        t = torch.randint(0, T, size = results.size())  # Random time step for each image
-
-        # Forward diffusion
-        x_t, noise = forward_diffusion(results, t)
-
-        # Predict noise with the UNet model
-        noise_pred = model(x_t, t)
-
-        # Loss is between actual noise and predicted noise
-        loss = mse_loss(noise_pred, noise)
-
-        # Backpropagation and optimization
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        epoch_loss += loss.item()
+    loss += loss.item()
         
-    avg_loss = epoch_loss / len(dataset_path)
-    print(f"Epoch [{epoch + 1}/{epochs}] Loss: {avg_loss:.6f}")
+avg_loss = loss / len(dicom_files)
+print(f"Average Loss: {avg_loss}")
+print("Training complete.")
 
+""" 
     # Save the best model based on lowest loss
     if avg_loss < best_loss:
         best_loss = avg_loss
