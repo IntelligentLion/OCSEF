@@ -1,5 +1,4 @@
 import pydicom
-from glob import glob
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -14,37 +13,90 @@ import math
 import os
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
+from glob import glob
 
+from VIT import VisionTransformer
 
+def crop_img(tensor, target_tensor):
+    tensor_size = tensor.size()[2] # (bs, c, h, w)
+    target_size = target_tensor.size()[2]
+    delta = tensor_size - target_size
+    delta = delta // 2
+    return tensor[:, :, delta:tensor_size-delta, delta:tensor_size-delta]
+
+def doubleConv2d(in_c, out_c):
+    conv = nn.Sequential(
+        nn.Conv2d(in_c, out_c, kernel_size=3),
+        nn.ReLU(),
+        nn.Conv2d(out_c, out_c, kernel_size=3),
+        nn.ReLU()
+    )
+    return conv
 
 # Model: UNet architecture (simplified)
 class UNet(nn.Module):
     def __init__(self):
         super(UNet, self).__init__()
-        self.encoder = nn.Sequential(
-            nn.Conv2d(2, 64, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(128, 256, 3, padding=1), nn.ReLU()
-        )
-        self.middle = nn.Sequential(
-            nn.Conv2d(256, 512, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(512, 512, 3, padding=1), nn.ReLU()
-        )
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(512, 256, 3, padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(256, 128, 3, padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(128, 64, 3, padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(64, 1, 3, padding=1), nn.Tanh()
-        )
 
-    def forward(self, x, t):
-        t_embed = torch.rand_like(x) * t.view(-1, 1, 1, 1)
-        x = torch.cat([x, t_embed], dim=1)
-        print(x.size())
-        x = self.encoder(x)
-        x = self.middle(x)
-        x = self.decoder(x)
-        return x
+        self.maxPool_2x2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.doubleConv_1 = doubleConv2d(2, 64)
+        self.doubleConv_2 = doubleConv2d(64, 128)
+        self.doubleConv_3 = doubleConv2d(128, 256)
+        self.doubleConv_4 = doubleConv2d(256, 512)
+        self.doubleConv_5 = doubleConv2d(512, 1024)
+
+        self.up_trans_1 = nn.ConvTranspose2d(1024, 512, kernel_size=2, stride=2)
+        self.up_conv_1 = doubleConv2d(1024, 512)
+
+        self.up_trans_2 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)
+        self.up_conv_2 = doubleConv2d(512, 256)
+
+        self.up_trans_3 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
+        self.up_conv_3 = doubleConv2d(256, 128)
+
+        self.up_trans_4 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
+        self.up_conv_4 = doubleConv2d(128, 64)
+
+        self.out = nn.Conv2d(64, 2, kernel_size=1)
+
+
+    def forward(self, image, t):
+        t_embed = torch.rand_like(image) * t.view(-1, 1, 1, 1)
+        image = torch.cat([image, t_embed], dim=1)
+        print(image.size())
+        # encoder
+        x1 = self.doubleConv_1(image) ##
+        x2 = self.maxPool_2x2(x1)
+        x3 = self.doubleConv_2(x2) ##
+        x4 = self.maxPool_2x2(x3)
+        x5 = self.doubleConv_3(x4) ##
+        x6 = self.maxPool_2x2(x5)
+        x7 = self.doubleConv_4(x6) ##
+        x8 = self.maxPool_2x2(x7)
+        x9 = self.doubleConv_5(x8)
+
+        # decoder
+        x_up_1 = self.up_trans_1(x9)
+        y_1 = crop_img(x7, x_up_1)
+        z1 = torch.cat([x_up_1, y_1], 1)
+        x_cat_1 = self.up_conv_1(z1)
+
+        x_up_2 = self.up_trans_2(x_cat_1)
+        y_2 = crop_img(x5, x_up_2)
+        z2 = torch.cat([x_up_2, y_2], 1)
+        x_cat_2 = self.up_conv_2(z2)  ######################
+
+        x_up_3 = self.up_trans_3(x_cat_2)
+        y_3 = crop_img(x3, x_up_3)
+        z3 = torch.cat([x_up_3, y_3], 1)
+        x_cat_3 = self.up_conv_3(z3)
+
+        x_up_4 = self.up_trans_4(x_cat_3)
+        y_4 = crop_img(x1, x_up_4)
+        z4 = torch.cat([x_up_4, y_4], 1)
+        x_cat_4 = self.up_conv_4(z4)
+
+        output = self.out(x_cat_4)
 
 betas_total = torch.linspace(0.0001, 0.02, 1000) # all the betas within the specified range
 alphas_total = 1. - betas_total # all the alphas within the range
@@ -121,7 +173,6 @@ if not os.path.exists(checkpoint_dir):
     os.makedirs(checkpoint_dir)
 
 
-
 model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
 optimizer = optim.Adam(model.parameters(), lr=lr)
 mse_loss = nn.MSELoss()
@@ -131,9 +182,9 @@ betas, alpha_bars = noise_schedule(T)
     
 # Diffusion Training Loop
 loss = 0
-for file_path in dicom_files:
-    tensor = load_dicom_to_tensor(file_path)
-    tensor = tensor.to('cuda')
+for i in tqdm(range(len(dicom_files))):
+    tensor = load_dicom_to_tensor(dicom_files[i])
+    tensor = tensor.to('cuda' if torch.cuda.is_available() else 'cpu')
     t = torch.randint(0, T, size = tensor.size())  # Random time step for each image
 
     # Forward diffusion
@@ -151,6 +202,7 @@ for file_path in dicom_files:
     optimizer.step()
 
     loss += loss.item()
+    print("One run done.")
         
 avg_loss = loss / len(dicom_files)
 print(f"Average Loss: {avg_loss}")

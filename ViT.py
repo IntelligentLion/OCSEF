@@ -20,6 +20,7 @@ from medmnist.info import INFO
 import pandas as pd
 import pydicom
 import numpy as np
+from glob import glob
 
 from test1.test_VAE1 import VariationalAutoEncoder
 
@@ -172,7 +173,7 @@ class Attention(nn.Module):
         x = self.proj_drop(x) # (n_samples, n_patches + 1, dim)
 
         return x
-
+'''
 class MLP(nn.Module):
     """ Multilayer perceptron
 
@@ -235,7 +236,7 @@ class MLP(nn.Module):
         x = self.drop(x) # (n_samples, n_patches + 1, hidden_features)
 
         return x
-
+'''
 class Block(nn.Module):
     """ Transformer block
 
@@ -276,11 +277,7 @@ class Block(nn.Module):
         )
         self.norm2 = nn.LayerNorm(dim, eps = 1e-6)
         hidden_features = int(mlp_ratio * dim)
-        self.MLP = MLP(
-            in_features=dim,
-            hidden_features=hidden_features,
-            out_features=dim
-        )
+        self.cross = CrossAttention(dim, n_heads = n_heads * 2, qkv_bias = qkv_bias, attn_p = attn_p, proj_p = p)
 
     def forward(self, x):
         """Runs forward pass.
@@ -312,7 +309,6 @@ class VisionTransformer(nn.Module):
             in_chans=in_chans,
             embed_dim=embed_dim
         )
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(
             torch.zeros(1, 1+self.patch_embed.n_patches, embed_dim)
         )
@@ -353,7 +349,7 @@ class VisionTransformer(nn.Module):
 
         return x
 
-class CustomCrossAttention(nn.Module):
+class CrossAttention(nn.Module):
     def __init__(self, img_size=512, patch_size=32, heads=8, head_dim=64, dropout=0.):
         super().__init__()
         self.img_size = img_size
@@ -394,6 +390,7 @@ class CustomDataset(Dataset):
 
 data_dir = '/Users/humza/PycharmProjects/OCSEF/dataset/ICH_train'
 dicom_files = sorted(glob(os.path.join(data_dir, "*.dcm")))
+
 def load_dicom_to_tensor(file_path):
     # Load DICOM file
     dicom = pydicom.dcmread(file_path)
