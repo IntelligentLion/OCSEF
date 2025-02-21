@@ -18,6 +18,8 @@ import medmnist
 from medmnist import OrganAMNIST
 from medmnist.info import INFO
 import pandas as pd
+import pydicom
+import numpy as np
 
 from test1.test_VAE1 import VariationalAutoEncoder
 
@@ -390,19 +392,32 @@ class CustomDataset(Dataset):
             features = self.transform(features)
         return features, label
 
-image = Image.open('/Users/hatapd/PycharmProjects/OCSEF/archive/head_ct/head_ct_train/000.png')
-results = transforms.ToTensor()(image)
-print(results)
+data_dir = '/Users/humza/PycharmProjects/OCSEF/dataset/ICH_train'
+dicom_files = sorted(glob(os.path.join(data_dir, "*.dcm")))
+def load_dicom_to_tensor(file_path):
+    # Load DICOM file
+    dicom = pydicom.dcmread(file_path)
 
-csv_file = '/Users/hatapd/PycharmProjects/OCSEF/archive/labels.csv'
-dataset = CustomDataset(csv_file)
-dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+    # Print some basic metadata to verify correct reading
+    print(f"Processing file: {file_path}")
+    print(f"Patient ID: {dicom.PatientID if 'PatientID' in dicom else 'N/A'}")
+    print(f"Modality: {dicom.Modality if 'Modality' in dicom else 'N/A'}")
 
-for batch_idx, (features, labels) in enumerate(dataloader):
-    # Use features and labels in your training loop
-    print(f"Batch {batch_idx}: Features shape={features.shape}, Labels shape={labels.shape}")
+    # Get pixel array and convert to float32
+    image = dicom.pixel_array.astype(np.float32)
 
-"""
+    # Ensure 2D image is in (H,W) format
+    if len(image.shape) == 2:
+        image = image[np.newaxis, ...]  # Add channel dimension: (1,H,W)
+    elif len(image.shape) == 3:
+        image = image[0:1, ...]  # Take first channel if multi-channel
+
+    # Convert to PyTorch tensor
+    tensor = torch.from_numpy(np.array(image).astype('float32'))
+    return tensor
+
+
+
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -429,31 +444,9 @@ transform = transforms.Compose([
 
 
 
-# Load datasets
-data_flag = 'organamnist'
-# data_flag = 'breastmnist'
-
-info = INFO[data_flag]
-task = info['task']
-n_channels = info['n_channels']
-n_classes = len(info['label'])
-
-DataClass = getattr(medmnist, info['python_class'])
-
-# load the data
-train_dataset = DataClass(split='train', transform=transform, download=True)
-test_dataset = DataClass(split='test', transform=transform, download=True)
-
 # Initialize model
 model = VisionTransformer(img_size = img_size, patch_size = patch_size, in_chans = in_chans, n_classes = n_classes, embed_dim = embed_dim, depth = depth, n_heads = n_heads, mlp_ratio = mlp_ratio, qkv_bias = qkv_bias, p = p, attn_p = attn_p).to(device)
 
-
-pil_dataset = DataClass(split='train', download=True)
-
-# encapsulate data into dataloader form
-train_loader = data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
-val_loader = data.DataLoader(dataset=train_dataset, batch_size=2*batch_size, shuffle=False)
-test_loader = data.DataLoader(dataset=test_dataset, batch_size=2*batch_size, shuffle=False)
 
 # Loss and optimizer
 criterion = nn.CrossEntropyLoss()
@@ -478,31 +471,6 @@ for epoch in range(num_epochs):
         _, predicted = outputs.max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
-
-    # Validation
-    model.eval()
-    val_loss, val_correct, val_total = 0.0, 0, 0
-
-    with torch.no_grad():
-        for inputs, targets in val_loader:
-            inputs = inputs.to(device)
-            targets = targets.squeeze().long().to(device)
-
-            outputs = model(inputs)
-            val_loss += criterion(outputs, targets).item()
-
-            _, predicted = outputs.max(1)
-            val_total += targets.size(0)
-            val_correct += predicted.eq(targets).sum().item()
-
-    # Print statistics
-    train_acc = 100. * correct / total
-    val_acc = 100. * val_correct / val_total
-    print(f"Epoch [{epoch + 1}/{num_epochs}] | "
-          f"Train Loss: {train_loss / len(train_loader):.4f} | "
-          f"Train Acc: {train_acc:.2f}% | "
-          f"Val Loss: {val_loss / len(val_loader):.4f} | "
-          f"Val Acc: {val_acc:.2f}%")
 
 # Test the model
 model.eval()
