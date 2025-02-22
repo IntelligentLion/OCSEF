@@ -88,7 +88,7 @@ class PatchEmbed(nn.Module):
         return x
 
 class Attention(nn.Module):
-    """"
+    """
     Attention mechanism.
 
     Parameters

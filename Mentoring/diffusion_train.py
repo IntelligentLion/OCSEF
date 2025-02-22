@@ -15,7 +15,7 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from glob import glob
 
-from VIT import VisionTransformer
+from ViT import VisionTransformer
 
 def crop_img(tensor, target_tensor):
     tensor_size = tensor.size()[2] # (bs, c, h, w)
