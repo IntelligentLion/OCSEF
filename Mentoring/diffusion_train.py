@@ -191,7 +191,7 @@ for i in tqdm(range(len(dicom_files))):
     x_t, noise = forward_diffusion(tensor, t)
 
     # Predict noise with the UNet model
-    noise_pred = model(x_t, t)
+    noise_pred = model(image=x_t, t=t)
 
     # Loss is between actual noise and predicted noise
     loss = mse_loss(noise_pred, noise)

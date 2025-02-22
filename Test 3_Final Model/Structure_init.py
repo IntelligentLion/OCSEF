@@ -4,7 +4,6 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from sympy.abc import alpha
-from torchvision.datasets import MNIST
 import torchvision.transforms as transforms
 from PIL import Image
 from torchvision.utils import save_image
@@ -15,6 +14,7 @@ import os
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from glob import glob
+from ViT import VisionTransformer
 
 def crop_img(tensor, target_tensor):
     tensor_size = tensor.size()[2] # (bs, c, h, w)
@@ -31,14 +31,28 @@ def doubleConv2d(in_c, out_c):
         nn.ReLU()
     )
     return conv
+def feature_addition(x, attention_map, stage):
+    B, C, H, W = x.size()
+    x = x.view(B, C, H * W).permute(2, 0, 1)  # Reshape to (H*W, B, C)
+
+        # Extract attention features for the current stage
+    attn_features = attention_map[stage - 1, :, :]  # Shape: (256, 784)
+
+        # Perform matrix multiplication with attention features
+    weighted_x = torch.matmul(attn_features.permute(1, 0), x.permute(1, 0, 2))
+
+    weighted_x = weighted_x.permute(1, 2, 0).view(B, C, H, W)
+
+    return weighted_x
 
 # Model: UNet architecture (simplified)
-class UNet(nn.Module):
+class UNetViTCross(nn.Module):
     def __init__(self):
-        super(UNet, self).__init__()
+        super(UNetViTCross, self).__init__()
 
+        self.cross_model = VisionTransformer(in_chans = 1024)
         self.maxPool_2x2 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.doubleConv_1 = doubleConv2d(2, 64)
+        self.doubleConv_1 = doubleConv2d(1, 64)
         self.doubleConv_2 = doubleConv2d(64, 128)
         self.doubleConv_3 = doubleConv2d(128, 256)
         self.doubleConv_4 = doubleConv2d(256, 512)
@@ -56,14 +70,28 @@ class UNet(nn.Module):
         self.up_trans_4 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
         self.up_conv_4 = doubleConv2d(128, 64)
 
-        self.out = nn.Conv2d(64, 2, kernel_size=1)
-        self.cross_model = UNetViTCross() #connect cross to model
+        self.out = nn.Conv2d(64, 1, kernel_size=1)
+
+    def feature_addition(x, attention_map, stage):
+        B, C, H, W = x.size()
+        x = x.view(B, C, H * W).permute(2, 0, 1)  # Reshape to (H*W, B, C)
+
+        # Extract attention features for the current stage
+        attn_features = attention_map[stage - 1, :, :]  # Shape: (256, 784)
+
+        # Perform matrix multiplication with attention features
+        weighted_x = torch.matmul(attn_features.permute(1, 0), x.permute(1, 0, 2))
+
+        weighted_x = weighted_x.permute(1, 2, 0).view(B, C, H, W)
+
+        return weighted_x
 
 
-    def forward(self, image, t):
-        t_embed = torch.rand_like(image) * t.view(-1, 1, 1, 1)
-        image = torch.cat([image, t_embed], dim=1)
-        print(image.size())
+    def forward(self, image, feature_tensor):
+        #t_embed = torch.rand_like(image) * t.view(-1, 1, 1, 1)
+        #image = torch.cat([image, t_embed], dim=1)
+        #print(image.size())
+
         # encoder
         x1 = self.doubleConv_1(image) ##
         x2 = self.maxPool_2x2(x1)
@@ -73,27 +101,34 @@ class UNet(nn.Module):
         x6 = self.maxPool_2x2(x5)
         x7 = self.doubleConv_4(x6) ##
         x8 = self.maxPool_2x2(x7)
-        x9 = self.doubleConv_5(x8)
+
+        x9 = self.doubleConv_5(x8) # bottleneck
+        x_i = self.cross_model(x9, feature_tensor)
 
         # apply the cross
-        x9 = self.cross_attention(x9)
+        #x = self.cross_model(x9)
 
-        # decoder
+        # decoder and feature addition
+        x9 = feature_addition(x9, x_i, 1)
         x_up_1 = self.up_trans_1(x9)
         y_1 = crop_img(x7, x_up_1)
+        #y_1 = self.cross_model(y_1) # Apply cross attention
         z1 = torch.cat([x_up_1, y_1], 1)
         x_cat_1 = self.up_conv_1(z1)
 
+        x_cat_1 = feature_addition(x_cat_1, x_i, 2)
         x_up_2 = self.up_trans_2(x_cat_1)
         y_2 = crop_img(x5, x_up_2)
         z2 = torch.cat([x_up_2, y_2], 1)
         x_cat_2 = self.up_conv_2(z2)  ######################
 
+        x_cat_2 = feature_addition(x_cat_2, x_i, 3)
         x_up_3 = self.up_trans_3(x_cat_2)
         y_3 = crop_img(x3, x_up_3)
         z3 = torch.cat([x_up_3, y_3], 1)
         x_cat_3 = self.up_conv_3(z3)
 
+        x_cat_3 = feature_addition(x_cat_3, x_i, 4)
         x_up_4 = self.up_trans_4(x_cat_3)
         y_4 = crop_img(x1, x_up_4)
         z4 = torch.cat([x_up_4, y_4], 1)
@@ -168,10 +203,17 @@ class PatchEmbed(nn.Module):
 
 #single cross
 class UNetViTCross(nn.Module):
-    def __init__(self):
+    def __init__(self,
+                 in_chans = 1024,
+                 img_size = 512,
+                 patch_size = 16,
+                 embed_dim = 128):
         #declaring basic structure for cross
-        super(UNetViTCross, self).__init__()
-        self.vit = PatchEmbed(img_size=512, patch_size=4)
+        super().__init__()
+        self.patch_embed = PatchEmbed(img_size=img_size,
+                                      patch_size=patch_size,
+                                      in_chans = in_chans,
+                                      embed_dim = 128)
         self.attn_layer = nn.MultiheadAttention(embed_dim=768, num_heads=4)
         self.projection = nn.Linear(768, 1024)
 
@@ -180,7 +222,7 @@ class UNetViTCross(nn.Module):
         x_patches = self.patch_embed(x) # converting the input to patches
         attn_output, n = self.atten_layer(x_patches, x_patches, x_patches)
         attn_output = self.projection(attn_output).permute(0, 2, 1).view(b,c,h,w) #remake shape
-        return x + attn_output # adding the featurees to UNET
+        return (x + attn_output) / (1**0.5) # adding the features to UNET and scaling feature intensity using temperature calculation
 
 '''class SelfAttention(nn.Module):
     def __init__(self, embed_dim, num_heads = 4, dropout=0.):
@@ -228,8 +270,9 @@ class UNetViTCross(nn.Module):
 
 ## use this one along with q for duel
 class DualInputCrossAttention(nn.Module):
-    def __init__(self, dim, num_heads=16):
+    def __init__(self, input, dim, num_heads=16, ):
         super().__init__()
+        self.input = input
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
@@ -237,13 +280,13 @@ class DualInputCrossAttention(nn.Module):
         assert self.head_dim * num_heads == dim, "dim must be divisible by num_heads"
 
         # Query projection for input x
-        self.query = nn.Linear(dim, dim)
+        self.query = nn.Linear(input.size(), input.size())
         # Key/Value projections for context
-        self.key = nn.Linear(dim, dim)
-        self.value = nn.Linear(dim, dim)
+        self.key = nn.Linear(input.size(), input.size())
+        self.value = nn.Linear(input.size(), input.size())
 
         # Output projection
-        self.out_proj = nn.Linear(dim, dim)
+        self.out_proj = nn.Linear(input.size(), input.size())
 
     def forward(self, x, context):
         """
@@ -279,3 +322,8 @@ class DualInputCrossAttention(nn.Module):
         attended = attended.transpose(1, 2).contiguous() \
             .view(batch_size, -1, self.dim)
         return self.out_proj(attended)
+
+
+x = torch.randn([1,1,572,572])
+model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
+model(x)
