@@ -31,6 +31,7 @@ def doubleConv2d(in_c, out_c):
         nn.ReLU()
     )
     return conv
+
 NET_INPUT_SIZE = (572, 572)
 def Shape_Process(img_tensor):
     """
@@ -96,7 +97,6 @@ class UNetViTCross(nn.Module):
     def __init__(self):
         super(UNetViTCross, self).__init__()
 
-        self.cross_model = VisionTransformer(in_chans = 1)
         self.maxPool_2x2 = nn.MaxPool2d(kernel_size=2, stride=2)
         self.doubleConv_1 = doubleConv2d(1, 64)
         self.doubleConv_2 = doubleConv2d(64, 128)
@@ -117,6 +117,9 @@ class UNetViTCross(nn.Module):
         self.up_conv_4 = doubleConv2d(128, 64)
 
         self.out = nn.Conv2d(64, 1, kernel_size=1)
+
+        self.cross_model = VisionTransformer()
+
 
     def feature_addition(x, attention_map, stage):
         B, C, H, W = x.size()
@@ -183,7 +186,7 @@ class UNetViTCross(nn.Module):
         output = self.out(x_cat_4)
         return output
 
-#ViT architecutre
+#ViT architecture
 
 class PatchEmbed(nn.Module):
     """
@@ -212,10 +215,10 @@ class PatchEmbed(nn.Module):
         Convolutional layer that does both the splitting into patches and their embedding
     """
 
-    def __init__(self, img_size, patch_size, in_chans=3, embed_dim=768):
+    def __init__(self, img_size, patch_size, in_chans=1024, embed_dim=1024):
         super().__init__()
-        self.img_size = int(img_size)
-        self.patch_size = int(patch_size)
+        self.img_size = int(572)
+        self.patch_size = int(22)
         self.n_patches = (img_size // patch_size) ** 2
 
         self.proj = nn.Conv2d(
@@ -248,7 +251,7 @@ class PatchEmbed(nn.Module):
         return x
 
 #single cross
-class UNetViTCross(nn.Module):
+'''class UNetViTCross(nn.Module):
     def __init__(self,
                  in_chans = 1024,
                  img_size = 512,
@@ -268,7 +271,7 @@ class UNetViTCross(nn.Module):
         x_patches = self.patch_embed(x) # converting the input to patches
         attn_output, n = self.atten_layer(x_patches, x_patches, x_patches)
         attn_output = self.projection(attn_output).permute(0, 2, 1).view(b,c,h,w) #remake shape
-        return (x + attn_output) / (1**0.5) # adding the features to UNET and scaling feature intensity using temperature calculation
+        return (x + attn_output) / (1**0.5) # adding the features to UNET and scaling feature intensity using temperature calculation'''
 
 '''class SelfAttention(nn.Module):
     def __init__(self, embed_dim, num_heads = 4, dropout=0.):
@@ -371,5 +374,6 @@ class DualInputCrossAttention(nn.Module):
 
 
 x = torch.randn([1,1,572,572])
-model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
-model(x)
+x = Shape_Process(x)
+model = UNetViTCross().to('cuda' if torch.cuda.is_available() else 'cpu')
+model(x,x)

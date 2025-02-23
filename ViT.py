@@ -81,11 +81,13 @@ class UNet(nn.Module):
         x5 = self.doubleConv_3(x4) ##
         x6 = self.maxPool_2x2(x5)
         x7 = self.doubleConv_4(x6) ##
-        x8 = self.maxPool_2x2(x7)
-        x9 = self.doubleConv_5(x8)
+        x8 = self.maxPool_2x2(x7) # Shape: [1, 512, 32, 32]
+        x9 = self.doubleConv_5(x8) # Shape: [1, 1024, 28, 28]
         
-        x_out = self.vit(x8, x9)
-        print(x_out.shape)
+        print("x9: ", x9.shape)
+        
+        #x_out = self.vit(x8, x9)
+        #print(x_out.shape)
 
         # decoder
         x_up_1 = self.up_trans_1(x9)
@@ -189,17 +191,16 @@ class PatchEmbed(nn.Module):
 
     def __init__(self):
         super(PatchEmbed, self).__init__()
-        self.img_size = 512
-        self.patch_size = 32
+        self.img_size = 572
+        self.patch_size = 22
         self.in_chans = 1
-        self.embed_dim = 1
+        self.out_chans = 1024
         self.n_patches = (self.img_size // self.patch_size) ** 2   # n_patches = (img_size//patch_size)^2
 
         self.proj = nn.Conv2d(
             self.in_chans,
-            self.embed_dim,
-            kernel_size=self.patch_size,
-            stride=self.patch_size
+            self.out_chans,
+            kernel_size=self.patch_size
         )
 
     def forward(self, x):
@@ -406,11 +407,12 @@ class VisionTransformer(nn.Module):
         return final
 
 x = torch.randn([1, 1, 512, 512])
-x=Shape_Process(x)
+x1=Shape_Process(x)
 
 model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
-
-model(image=x)
+#model2 = VisionTransformer().to('cuda' if torch.cuda.is_available() else 'cpu')
+model(image=x1)
+#model(image=x)
 
 '''
 model = VisionTransformer()
