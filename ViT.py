@@ -3,6 +3,7 @@ import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
 from fontTools.varLib.models import VariationModel
+from sympy import python
 from torchvision.transforms import v2
 from torchvision.datasets.folder import default_loader
 import torch.nn.functional as F
@@ -20,8 +21,9 @@ import pandas as pd
 import pydicom
 import numpy as np
 from glob import glob
+import cv2 as cv
 
-'''def crop_img(tensor, target_tensor):
+def crop_img(tensor, target_tensor):
     tensor_size = tensor.size()[2] # (bs, c, h, w)
     target_size = target_tensor.size()[2]
     delta = tensor_size - target_size
@@ -29,111 +31,72 @@ from glob import glob
     if delta > 0:
         return tensor[:, :, delta:tensor_size-delta, delta:tensor_size-delta]
     else:
-        return tensor'''
-
-def crop_img(tensor, target_tensor):
-    tensor_size = tensor.size()[2]
-    target_size = target_tensor.size()[2]
-    delta = tensor_size - target_size
-    delta = delta // 2
-    return tensor[:, :, delta:tensor_size-delta, delta:tensor_size-delta]
+        return tensor
 
 def doubleConv2d(in_c, out_c):
     conv = nn.Sequential(
-        nn.Conv2d(in_c, out_c, kernel_size=3, stride=3),
+        nn.Conv2d(in_c, out_c, kernel_size=3),
         nn.ReLU(),
-        nn.Conv2d(out_c, out_c, kernel_size=3, stride=3),
+        nn.Conv2d(out_c, out_c, kernel_size=3),
         nn.ReLU()
     )
     return conv
 
-def maxPool2x2(in_c, out_c):
-    conv = nn.Sequential(
-        nn.Conv2d(in_c, out_c, kernel_size=3),
-        nn.MaxPool2d(kernel_size=2, stride=2)
-    )
-    return conv
+
 class UNet(nn.Module):
     def __init__(self):
         super(UNet, self).__init__()
-        self.in_channels = 1
-        self.doubleConv_1 = doubleConv2d(self.in_channels, 2*self.in_channels)
 
-        self.maxPool2x2_1 = maxPool2x2(self.in_channels, 2*self.in_channels)
+        self.maxPool_2x2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.doubleConv_1 = doubleConv2d(1, 64)
+        self.doubleConv_2 = doubleConv2d(64, 128)
+        self.doubleConv_3 = doubleConv2d(128, 256)
+        self.doubleConv_4 = doubleConv2d(256, 512)
+        self.doubleConv_5 = doubleConv2d(512, 1024)
 
-        self.doubleConv_2 = doubleConv2d(2*self.in_channels, 2*self.in_channels)
+        self.up_trans_1 = nn.ConvTranspose2d(1024, 512, kernel_size=2, stride=2)
+        self.up_conv_1 = doubleConv2d(1024, 512)
 
-        self.maxPool2x2_2 = maxPool2x2(2*self.in_channels, 4*self.in_channels)
+        self.up_trans_2 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)
+        self.up_conv_2 = doubleConv2d(512, 256)
 
-        self.doubleConv_3 = doubleConv2d(4*self.in_channels, 4*self.in_channels)
+        self.up_trans_3 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
+        self.up_conv_3 = doubleConv2d(256, 128)
 
-        self.maxPool2x2_3 = maxPool2x2(4*self.in_channels, 8*self.in_channels)
+        self.up_trans_4 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
+        self.up_conv_4 = doubleConv2d(128, 64)
 
-        self.doubleConv_4 = doubleConv2d(8*self.in_channels, 8*self.in_channels)
-
-        self.maxPool2x2_4 = maxPool2x2(8*self.in_channels, 16*self.in_channels)
-
-        self.doubleConv_5 = doubleConv2d(16*self.in_channels, 16*self.in_channels)
-
-        self.up_trans_1 = nn.ConvTranspose2d(16*self.in_channels, 16*self.in_channels, kernel_size=2, stride=2)
-        self.up_conv_1 = doubleConv2d(16*self.in_channels, 8*self.in_channels)
-
-        self.up_trans_2 = nn.ConvTranspose2d(8*self.in_channels, 8*self.in_channels, kernel_size=2, stride=2)
-        self.up_conv_2 = doubleConv2d(8*self.in_channels, 4*self.in_channels)
-
-        self.up_trans_3 = nn.ConvTranspose2d(4*self.in_channels, 4*self.in_channels, kernel_size=2, stride=2)
-        self.up_conv_3 = doubleConv2d(4*self.in_channels, 2*self.in_channels)
-
-        self.up_trans_4 = nn.ConvTranspose2d(2*self.in_channels, 2*self.in_channels, kernel_size=2, stride=2)
-        self.up_conv_4 = doubleConv2d(2*self.in_channels, self.in_channels)
-
-        self.out = nn.Conv2d(self.in_channels, self.in_channels, kernel_size=1)
+        self.out = nn.Conv2d(64, 1, kernel_size=1)
+        
+        self.vit = VisionTransformer()
 
 
     def forward(self, image):
         # encoder
+        print(image.shape)
         x1 = self.doubleConv_1(image) ##
-        print("x1: ", x1.shape)
-        x2 = self.maxPool2x2_1(x1)
-        print("x2: ", x2.shape)
-
-        x3 = self.doubleConv_2(x2)
-        print("x3: ", x3.shape)  ##
-        x4 = self.maxPool2x2_2(x3)
-        print("x4: ", x4.shape)
-
+        x2 = self.maxPool_2x2(x1)
+        x3 = self.doubleConv_2(x2) ##
+        x4 = self.maxPool_2x2(x3)
         x5 = self.doubleConv_3(x4) ##
-        print("x5: ", x5.shape)
-        x6 = self.maxPool2x2_3(x5)
-        print("x6: ", x6.shape)
-
+        x6 = self.maxPool_2x2(x5)
         x7 = self.doubleConv_4(x6) ##
-        print("x7: ", x7.shape)
-        x8 = self.maxPool2x2_4(x7)
-        print("x8: ", x8.shape)
-
+        x8 = self.maxPool_2x2(x7)
         x9 = self.doubleConv_5(x8)
-        print("x9: ", x9.shape)
+        
+        x_out = self.vit(x8, x9)
+        print(x_out.shape)
+
+        # decoder
         x_up_1 = self.up_trans_1(x9)
-        print("xu1: ", x_up_1.shape)
-
         y_1 = crop_img(x7, x_up_1)
-        print("y1: ", y_1.shape)
         z1 = torch.cat([x_up_1, y_1], 1)
-        print("z1: ", z1.shape)
-
         x_cat_1 = self.up_conv_1(z1)
-        print("xc1: ", x_cat_1.shape)
 
         x_up_2 = self.up_trans_2(x_cat_1)
-        print("xu2: ", x_up_2.shape)
         y_2 = crop_img(x5, x_up_2)
-        print("y2: ", y_2.shape)
-
         z2 = torch.cat([x_up_2, y_2], 1)
-        print("z2: ", z2.shape)
         x_cat_2 = self.up_conv_2(z2)
-        print("xc2: ", x_cat_2.shape)
 
         x_up_3 = self.up_trans_3(x_cat_2)
         y_3 = crop_img(x3, x_up_3)
@@ -148,6 +111,54 @@ class UNet(nn.Module):
         output = self.out(x_cat_4)
 
         print(output.size())
+
+NET_INPUT_SIZE = (572, 572)
+
+
+def Shape_Process(img_tensor):
+    """
+    Processes the input image tensor to match the network input size using PyTorch operations.
+
+    Args:
+        img_tensor (torch.Tensor): Input image tensor in CxHxW format.
+        NET_INPUT_SIZE (tuple): Target spatial size (height, width).
+
+    Returns:
+        torch.Tensor: Processed image tensor.
+    """
+    _, C, H, W = img_tensor.shape
+    TH, TW = NET_INPUT_SIZE
+
+    # Check if the image is larger than the target size in both dimensions
+    if H > TH and W > TW:
+        # Resize to target size using bicubic interpolation
+        img_tensor = F.interpolate(
+            img_tensor.unsqueeze(0),
+            size=NET_INPUT_SIZE,
+            mode='bicubic',
+            align_corners=False
+        ).squeeze(0)
+    # Check if the image is smaller than the target size in both dimensions
+    elif H < TH and W < TW:
+        # Resize if height is odd
+        if H % 2 != 0:
+            new_H = H // 2
+            new_W = int(W * (new_H / H))  # Maintain aspect ratio
+            img_tensor = F.interpolate(
+                img_tensor.unsqueeze(0),
+                size=(new_H, new_W),
+                mode='bicubic',
+                align_corners=False
+            ).squeeze(0)
+            H, W = new_H, new_W
+
+        # Calculate padding (handling possible odd dimensions)
+        pad_h = (TH - H + 1) // 2  # Ensures total padding adds up correctly
+        pad_w = (TW - W + 1) // 2
+        # Apply reflection padding
+        img_tensor = F.pad(img_tensor, (pad_w, pad_w, pad_h, pad_h), mode='reflect')
+
+    return img_tensor
 
 class PatchEmbed(nn.Module):
     """
@@ -180,8 +191,8 @@ class PatchEmbed(nn.Module):
         super(PatchEmbed, self).__init__()
         self.img_size = 512
         self.patch_size = 32
-        self.in_chans = 512
-        self.embed_dim = 768
+        self.in_chans = 1
+        self.embed_dim = 1
         self.n_patches = (self.img_size // self.patch_size) ** 2   # n_patches = (img_size//patch_size)^2
 
         self.proj = nn.Conv2d(
@@ -395,8 +406,10 @@ class VisionTransformer(nn.Module):
         return final
 
 x = torch.randn([1, 1, 512, 512])
+x=Shape_Process(x)
 
 model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
+
 model(image=x)
 
 '''

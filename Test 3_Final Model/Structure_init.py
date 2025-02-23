@@ -31,6 +31,52 @@ def doubleConv2d(in_c, out_c):
         nn.ReLU()
     )
     return conv
+NET_INPUT_SIZE = (572, 572)
+def Shape_Process(img_tensor):
+    """
+    Processes the input image tensor to match the network input size using PyTorch operations.
+
+    Args:
+        img_tensor (torch.Tensor): Input image tensor in CxHxW format.
+        NET_INPUT_SIZE (tuple): Target spatial size (height, width).
+
+    Returns:
+        torch.Tensor: Processed image tensor.
+    """
+    _, C, H, W = img_tensor.shape
+    TH, TW = NET_INPUT_SIZE
+
+    # Check if the image is larger than the target size in both dimensions
+    if H > TH and W > TW:
+        # Resize to target size using bicubic interpolation
+        img_tensor = F.interpolate(
+            img_tensor.unsqueeze(0),
+            size=NET_INPUT_SIZE,
+            mode='bicubic',
+            align_corners=False
+        ).squeeze(0)
+    # Check if the image is smaller than the target size in both dimensions
+    elif H < TH and W < TW:
+        # Resize if height is odd
+        if H % 2 != 0:
+            new_H = H // 2
+            new_W = int(W * (new_H / H))  # Maintain aspect ratio
+            img_tensor = F.interpolate(
+                img_tensor.unsqueeze(0),
+                size=(new_H, new_W),
+                mode='bicubic',
+                align_corners=False
+            ).squeeze(0)
+            H, W = new_H, new_W
+
+        # Calculate padding (handling possible odd dimensions)
+        pad_h = (TH - H + 1) // 2  # Ensures total padding adds up correctly
+        pad_w = (TW - W + 1) // 2
+        # Apply reflection padding
+        img_tensor = F.pad(img_tensor, (pad_w, pad_w, pad_h, pad_h), mode='reflect')
+
+    return img_tensor
+
 def feature_addition(x, attention_map, stage):
     B, C, H, W = x.size()
     x = x.view(B, C, H * W).permute(2, 0, 1)  # Reshape to (H*W, B, C)
