@@ -151,7 +151,8 @@ class UNetViTCross(nn.Module):
         x7 = self.doubleConv_4(x6) ##
         x8 = self.maxPool_2x2(x7)
 
-        x9 = self.doubleConv_5(x8) # bottleneck
+        x9 = self.doubleConv_5(x8) # bottleneck, Shape: [1, 1024, 28, 28]
+
         x_i = self.cross_model(x9, feature_tensor)
 
         # apply the cross
@@ -215,7 +216,7 @@ class PatchEmbed(nn.Module):
         Convolutional layer that does both the splitting into patches and their embedding
     """
 
-    def __init__(self, img_size, patch_size, in_chans=1024, embed_dim=1024):
+    def __init__(self, img_size, patch_size, in_chans=1, embed_dim=1024):
         super().__init__()
         self.img_size = int(572)
         self.patch_size = int(22)

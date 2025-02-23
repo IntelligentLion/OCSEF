@@ -18,6 +18,7 @@ from torchmetrics.image.fid import FrechetInceptionDistance
 
 
 
+
 betas_total = torch.linspace(0.0001, 0.02, 1000) # all the betas within the specified range
 alphas_total = 1. - betas_total # all the alphas within the range
 
@@ -116,6 +117,57 @@ for i in tqdm(range(len(dicom_files))):
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
+
+
+    # Initialize your model, optimizer, and loss function
+    model = UNetViTCross()
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    mse_loss = nn.MSELoss()
+    fid = FrechetInceptionDistance(feature=64)
+
+    # Define your training and evaluation parameters
+    num_epochs = 100  # Total number of epochs for training
+    eval_interval = 5  # Perform validation every 5 epochs
+    fid_weight = 0.3  # Weight for the FiD score in the combined loss
+    fid_scores = []  # List to store FiD scores
+
+    # Training loop
+    for epoch in range(num_epochs):
+        model.train()  # Set model to training mode
+        for batch in tqdm(train_dataloader):  # Iterate over batches
+            # Forward pass
+            outputs, timestep_embeddings = model(batch['input'])
+
+            # Compute MSE for timestep embeddings
+            mse = mse_loss(timestep_embeddings, batch['timestep_embeddings'])
+
+            # Compute FiD score periodically
+            if epoch % eval_interval == 0:
+                model.eval()  # Set model to evaluation mode
+                with torch.no_grad():
+                    generated_images = model.generate_images(batch_size=64)
+                    fid.update(generated_images, real=False)
+                    fid.update(val_batch['real_images'], real=True)
+                fid_score = fid.compute().item()
+                fid.reset()
+                fid_scores.append(fid_score)
+
+                # Update combined loss
+                combined_loss = mse + fid_weight * fid_score
+            else:
+                combined_loss = mse
+
+            # Backward pass and optimization
+            optimizer.zero_grad()
+            combined_loss.backward()
+            optimizer.step()
+
+        # Validation loop for FiD score
+        if epoch % eval_interval == 0:
+            print(f'Epoch {epoch}, Combined Loss: {combined_loss.item()}, Validation FiD: {fid_score}')
+
+    # Print final FiD scores
+    print('Final FiD Scores:', fid_scores)
 
     loss += loss.item()
     print("One run done.")
