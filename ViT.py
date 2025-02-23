@@ -220,23 +220,19 @@ class Block(nn.Module):
 
 class VisionTransformer(nn.Module):
     def __init__(self,
-                 input_1,
-                 context,
                  in_chans = 1,
                  embed_dim = 768,
                  depth = 2,
+                 n_patches = 256,
                  n_heads = 16,
                  qkv_bias = True,
                  drop_p=0.2,
                  attn_p = 0.):
 
         super().__init__()
-
-        self.input_1 = input_1
-        self.context = context
         self.patch_embed = PatchEmbed()
         self.pos_embed = nn.Parameter(
-            torch.zeros(1, 1+self.patch_embed.n_patches, embed_dim)
+            torch.zeros(1, self.patch_embed.n_patches, embed_dim)
         )
         self.pos_drop = nn.Dropout(p=drop_p)
 
@@ -251,17 +247,16 @@ class VisionTransformer(nn.Module):
         self.head = nn.Linear(embed_dim, 1)
 
         self.linear_proj = self.patch_embed(x)
-
-        self.dual_cross_attention = DualInputCrossAttention(input1=self.input_1, context=context, num_heads=n_heads)
+        self.n_heads = n_heads
 
     def forward(self, x, context):
         #n_samples = x.shape[0] # (n_samples, in_chans, img_size, img_size)
         x_embed = self.patch_embed(x)
         final = []
         for i in range(len(x_embed)):
-            input1 = x_embed[i]
-            input1 = Block(input1)
-            input = DualInputCrossAttention(input1, context, num_heads=n_heads)
+            input = x_embed[i]
+            input= Block(input)
+            input = DualInputCrossAttention(input, context, num_heads=self.n_heads)
             x = input + self.pos_embed #(n_samples, 1 + n_patches, embed_dim)
             x = self.pos_drop(x)
             x = self.norm(x)
@@ -270,9 +265,12 @@ class VisionTransformer(nn.Module):
 
 x = torch.randn([1, 1, 512, 512])
 context = torch.randn([1, 1, 512, 512])
-model = VisionTransformer(input_1=x, context=context)
-result = model()
-print(result)
+model = VisionTransformer(x, context)
+
+'''
+model = VisionTransformer()
+result = model(x, context)
+print(result)'''
 
 """ 
 class CrossAttention(nn.Module):
@@ -297,7 +295,7 @@ class CrossAttention(nn.Module):
         b, n, _, h = *x.shape, self.heads
         h = self.heads
         x = self.norm(x) 
-"""
+
 
 data_dir = '/Users/humza/PycharmProjects/OCSEF/dataset/ICH_train'
 dicom_files = sorted(glob(os.path.join(data_dir, "*.dcm")))
@@ -372,3 +370,4 @@ for i in tqdm(range(len(dicom_files))):
     model.train()
     x = model(tensor)
     print(x)
+"""

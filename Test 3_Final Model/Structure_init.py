@@ -50,7 +50,7 @@ class UNetViTCross(nn.Module):
     def __init__(self):
         super(UNetViTCross, self).__init__()
 
-        self.cross_model = VisionTransformer(in_chans = 1024)
+        self.cross_model = VisionTransformer(in_chans = 256)
         self.maxPool_2x2 = nn.MaxPool2d(kernel_size=2, stride=2)
         self.doubleConv_1 = doubleConv2d(1, 64)
         self.doubleConv_2 = doubleConv2d(64, 128)
