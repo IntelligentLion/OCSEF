@@ -23,213 +23,36 @@ import numpy as np
 from glob import glob
 import cv2 as cv
 
-def crop_img(tensor, target_tensor):
-    tensor_size = tensor.size()[2] # (bs, c, h, w)
-    target_size = target_tensor.size()[2]
-    delta = tensor_size - target_size
-    delta = delta // 2
-    if delta > 0:
-        return tensor[:, :, delta:tensor_size-delta, delta:tensor_size-delta]
-    else:
-        return tensor
-
-def doubleConv2d(in_c, out_c):
-    conv = nn.Sequential(
-        nn.Conv2d(in_c, out_c, kernel_size=3),
-        nn.ReLU(),
-        nn.Conv2d(out_c, out_c, kernel_size=3),
-        nn.ReLU()
-    )
-    return conv
-
-
-class UNet(nn.Module):
-    def __init__(self):
-        super(UNet, self).__init__()
-
-        self.maxPool_2x2 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.doubleConv_1 = doubleConv2d(1, 64)
-        self.doubleConv_2 = doubleConv2d(64, 128)
-        self.doubleConv_3 = doubleConv2d(128, 256)
-        self.doubleConv_4 = doubleConv2d(256, 512)
-        self.doubleConv_5 = doubleConv2d(512, 1024)
-
-        self.up_trans_1 = nn.ConvTranspose2d(1024, 512, kernel_size=2, stride=2)
-        self.up_conv_1 = doubleConv2d(1024, 512)
-
-        self.up_trans_2 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)
-        self.up_conv_2 = doubleConv2d(512, 256)
-
-        self.up_trans_3 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
-        self.up_conv_3 = doubleConv2d(256, 128)
-
-        self.up_trans_4 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
-        self.up_conv_4 = doubleConv2d(128, 64)
-
-        self.out = nn.Conv2d(64, 1, kernel_size=1)
-        
-        self.vit = VisionTransformer()
-
-
-    def forward(self, image):
-        # encoder
-        print(image.shape)
-        x1 = self.doubleConv_1(image) ##
-        x2 = self.maxPool_2x2(x1)
-        x3 = self.doubleConv_2(x2) ##
-        x4 = self.maxPool_2x2(x3)
-        x5 = self.doubleConv_3(x4) ##
-        x6 = self.maxPool_2x2(x5)
-        x7 = self.doubleConv_4(x6) ##
-        x8 = self.maxPool_2x2(x7) # Shape: [1, 512, 32, 32]
-        x9 = self.doubleConv_5(x8) # Shape: [1, 1024, 28, 28]
-        
-        print("x9: ", x9.shape)
-        
-        #x_out = self.vit(x8, x9)
-        #print(x_out.shape)
-
-        # decoder
-        x_up_1 = self.up_trans_1(x9)
-        y_1 = crop_img(x7, x_up_1)
-        z1 = torch.cat([x_up_1, y_1], 1)
-        x_cat_1 = self.up_conv_1(z1)
-
-        x_up_2 = self.up_trans_2(x_cat_1)
-        y_2 = crop_img(x5, x_up_2)
-        z2 = torch.cat([x_up_2, y_2], 1)
-        x_cat_2 = self.up_conv_2(z2)
-
-        x_up_3 = self.up_trans_3(x_cat_2)
-        y_3 = crop_img(x3, x_up_3)
-        z3 = torch.cat([x_up_3, y_3], 1)
-        x_cat_3 = self.up_conv_3(z3)
-
-        x_up_4 = self.up_trans_4(x_cat_3)
-        y_4 = crop_img(x1, x_up_4)
-        z4 = torch.cat([x_up_4, y_4], 1)
-        x_cat_4 = self.up_conv_4(z4)
-
-        output = self.out(x_cat_4)
-
-        print(output.size())
 
 NET_INPUT_SIZE = (572, 572)
-
-
-def Shape_Process(img_tensor):
-    """
-    Processes the input image tensor to match the network input size using PyTorch operations.
-
-    Args:
-        img_tensor (torch.Tensor): Input image tensor in CxHxW format.
-        NET_INPUT_SIZE (tuple): Target spatial size (height, width).
-
-    Returns:
-        torch.Tensor: Processed image tensor.
-    """
-    _, C, H, W = img_tensor.shape
-    TH, TW = NET_INPUT_SIZE
-
-    # Check if the image is larger than the target size in both dimensions
-    if H > TH and W > TW:
-        # Resize to target size using bicubic interpolation
-        img_tensor = F.interpolate(
-            img_tensor.unsqueeze(0),
-            size=NET_INPUT_SIZE,
-            mode='bicubic',
-            align_corners=False
-        ).squeeze(0)
-    # Check if the image is smaller than the target size in both dimensions
-    elif H < TH and W < TW:
-        # Resize if height is odd
-        if H % 2 != 0:
-            new_H = H // 2
-            new_W = int(W * (new_H / H))  # Maintain aspect ratio
-            img_tensor = F.interpolate(
-                img_tensor.unsqueeze(0),
-                size=(new_H, new_W),
-                mode='bicubic',
-                align_corners=False
-            ).squeeze(0)
-            H, W = new_H, new_W
-
-        # Calculate padding (handling possible odd dimensions)
-        pad_h = (TH - H + 1) // 2  # Ensures total padding adds up correctly
-        pad_w = (TW - W + 1) // 2
-        # Apply reflection padding
-        img_tensor = F.pad(img_tensor, (pad_w, pad_w, pad_h, pad_h), mode='reflect')
-
-    return img_tensor
 
 class PatchEmbed(nn.Module):
     """
     Split image into patches and then embed them.
-
-    Parameters
-    ---------
-    img_size : int
-        Size of the image (it is a square).
-
-    patch_size: int
-        Size of the patch (it is a square).
-
-    in_chans: int
-        Number of input channels.
-
-    embed_dim : int
-        The embedding dimension.
-
-    Attributes
-    ----------
-    n_patches : int
-        Number of patches inside of our image.
-
-    proj : nn.Conv2d
-        Convolutional layer that does both the splitting into patches and their embedding
     """
 
-    def __init__(self):
-        super(PatchEmbed, self).__init__()
-        self.img_size = 572
-        self.patch_size = 22
-        self.in_chans = 1
-        self.out_chans = 1024
-        self.n_patches = (self.img_size // self.patch_size) ** 2   # n_patches = (img_size//patch_size)^2
+    def __init__(self, img_size=572, patch_size=22, in_chans=1, embed_dim=1024):
+        super().__init__()
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.n_patches = (img_size // patch_size) ** 2
 
         self.proj = nn.Conv2d(
-            self.in_chans,
-            self.out_chans,
-            kernel_size=self.patch_size
+            in_chans,
+            embed_dim,
+            kernel_size=patch_size,
+            stride=patch_size
         )
 
     def forward(self, x):
         """
         Run forward pass.
-
-        Parameters
-        ----------
-        x = torch.Tensor
-            Shape '(n_samples, in_chans, img_size, img_size)'
-
-        Returns
-        -------
-        torch.Tensor
-            Shape '(n_samples, n_patches, embed_dim)'
         """
-
-        x = self.proj(
-            x
-        ) # (n_samples, embed_dim, n_patches**0.5, n_patches**0.5)
-
-        print("patch embed: ", x.shape)
-
+        x = self.proj(x) # (n_samples, embed_dim, n_patches**0.5, n_patches**0.5)
         x = x.flatten(2)   # (n_samples, embed_dim, n_patches)
         x = x.transpose(1, 2) # (n_samples, n_patches, embed_dim)
-        #x = F.interpolate(x, size = (28,28), mode = 'bilinear', align_corners = False)
 
         return x
-
 
 
 # Access image in training loop
@@ -239,106 +62,52 @@ class PatchEmbed(nn.Module):
 # Input patch and context (x9) from bottleneck into DualInputCrossAttention module
 
 class DualInputCrossAttention(nn.Module):
-    def __init__(self, input1, context, num_heads, drop_p=0.2):
+    def __init__(self, num_heads=16, embed_dim = 1024):
         super().__init__()
 
-        self.num_heads = num_heads
-
-        # First set of patches
-        self.input1 = input1
-        self.dim1 = input1.size(3) # Patch size: (28, 28)
-
-        # Second set of patches
-        self.context = context  # bottleneck
-        self.dim2 = context.size(3) # Patch size: (28, 28) from bottleneck
-
-        if self.dim1 != self.dim2:
-            print("Input and Context are of different dimensions")
-            raise ValueError
-        if not (self.dim1 % self.num_heads == 0 and self.dim2 % self.num_heads == 0):    # dim1 and dim2 must be divisible by num_head
-            print("Input and Context are not divisible by num_heads")
-            raise ValueError
 
         # Query projection for input x
-        self.query = nn.Linear(self.dim1, self.dim1)
+        self.query = nn.Linear(embed_dim, embed_dim)
         # Key/Value projections for context
-        self.key = nn.Linear(self.dim2, self.dim2)
-        self.value = nn.Linear(self.dim2, self.dim2)
+        self.key = nn.Linear(embed_dim, embed_dim)
+        self.value = nn.Linear(embed_dim, embed_dim)
+        self.mha = nn.MultiheadAttention(
+            embed_dim = embed_dim,
+            num_heads = num_heads,
+            batch_first = True
+        )
 
-        # Output projection
-        self.out_proj = nn.Linear(self.dim1, self.dim1)
 
-        self.proj_drop = nn.Dropout(drop_p)
 
     def forward(self, x, context):
-        """
-        Args:
-            x: (batch_size, seq_len_x, dim)
-            context: (batch_size, seq_len_ctx, dim)
-
-        Returns:
-            attended: (batch_size, seq_len_x, dim)
-        """
-        batch_size = x.size(0)
 
         # Project inputs
+        B, C, _, _ = context.size()
+        context = context.view(B, C, -1)
+        context = context.permute(0, 2, 1)  # (B, Lx, D)
+        print(context.shape)
+        print(x.shape)
+
         q = self.query(x)  # (B, Lx, D)
         k = self.key(context)  # (B, Lctx, D)
         v = self.value(context)  # (B, Lctx, D)
 
-        # Reshape for multi-head attention
-        q = q.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-        k = k.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-        v = v.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+        # Initialize Multihead Attention
+        mha = nn.MultiheadAttention(embed_dim=1024, num_heads=16, dropout=self.drop_p, bias=False)
 
         # Compute attention scores
-        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / (self.head_dim ** 0.5)
+        attn_map, _ = mha(q, k, v)
+        print(attn_map.shape)
 
-        # Apply softmax
-        attn_weights = F.softmax(attn_scores, dim=-1)
-
-        # Apply attention to values
-        attended = torch.matmul(attn_weights, v)
-
-        # Concatenate heads and project back
-        attended = attended.transpose(1, 2).contiguous() \
-            .view(batch_size, -1, self.dim)
-        attended = self.out_proj(attended)
-        return self.proj_drop(attended)
+        return attn_map
 
 class Block(nn.Module):
-    """ Transformer block
 
-    Parameters
-    ----------
-    dim : int
-        Embedding dimension.
-    n_heads : int
-        Number of attention heads
-    mlp_ratio : float
-        Determines the hidden dimension size of the 'MLP' module with respect to 'dim'
-    qkv_bias : bool
-        If True then we include bias to query, key, and value projections
-    p, attn_p : float
-        Dropout probability
-
-    Attributes
-    ----------
-    norm1, norm2 : LayerNorm
-        Layer normalization.
-
-    attn : Attenion
-        Attention module
-
-    mlp : MLP
-        MLP module.
-    """
-
-    def __init__(self, embed_dim, n_heads=16, qkv_bias = True, p=0., attn_p = 0.):
+    def __init__(self, embed_dim, n_heads=16, qkv_bias=True, p=0.):
         super().__init__()
-        self.norm1 = nn.LayerNorm(embed_dim, eps=1e-6)
-        self.attn = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=n_heads, dropout=p, bias = qkv_bias, batch_first=True)
-        self.norm2 = nn.LayerNorm(embed_dim, eps = 1e-6)
+        self.norm1 = nn.LayerNorm([1, 676, 1024], eps=1e-6)
+        self.attn = nn.MultiheadAttention(embed_dim=1024, num_heads=n_heads, dropout=p, bias=qkv_bias, batch_first=True)
+        self.attn_weights = None
 
 
     def forward(self, x):
@@ -355,9 +124,8 @@ class Block(nn.Module):
             Shape '(n_samples, n_patches + 1, dim)'
 
         """
-
-        x = x + self.attn(self.norm1(x))
-        x = x + self.norm2(x)
+        x = x + self.attn(self.norm1(x), self.norm1(x), self.norm1(x))[0]
+        self.attn_weights = self.attn.in_proj_weight
 
         return x
 
@@ -373,149 +141,39 @@ class VisionTransformer(nn.Module):
                  attn_p = 0.):
 
         super().__init__()
-        self.patch_embed = PatchEmbed()
         self.pos_embed = nn.Parameter(
-            torch.zeros((1, self.patch_embed.n_patches, 768))
+            torch.zeros((1, 676, 1024))
         )
         self.pos_drop = nn.Dropout(p=drop_p)
 
-        self.block =  Block( embed_dim = embed_dim,
-                              n_heads = n_heads,
-                              qkv_bias = qkv_bias,
-                              p = drop_p,
-                              attn_p = attn_p
-            )
+        self.block = Block(embed_dim = 1024,
+                           n_heads = n_heads,
+                           qkv_bias = qkv_bias,
+                           p = drop_p,
+       )
 
-        self.norm = nn.LayerNorm(embed_dim, eps=1e-6)
-        self.head = nn.Linear(embed_dim, 1)
 
-        self.linear_proj = self.patch_embed(x)
+        self.norm = nn.LayerNorm([1, 676, 1024], eps=1e-6)
+        self.head = nn.Linear(1024, 1)
+
+        self.linear_proj = PatchEmbed()
         self.n_heads = n_heads
 
     def forward(self, x, context):
         #n_samples = x.shape[0] # (n_samples, in_chans, img_size, img_size)
-        x_embed = self.patch_embed(x)
-        print("x_embed: ", x_embed.size)
+        x_embed = self.linear_proj(x)
+        print("x_embed: ", x_embed)
         final = []
-        for i in range(len(x_embed)):
-            input = x_embed[i]
-            input= Block(input)
-            input = DualInputCrossAttention(input, context, num_heads=self.n_heads)
+        for i in range(26):
+            input = x_embed[:, i, :]
+            print(input)
+            input = Block(input)
+            print("input after block: ", input)
+            input = DualInputCrossAttention(input, context)
+
+            #x = torch.cat([input, self.pos_embed], dim=1)
             x = input + self.pos_embed #(n_samples, 1 + n_patches, embed_dim)
             x = self.pos_drop(x)
             x = self.norm(x)
             final.append(x)
         return final
-
-x = torch.randn([1, 1, 512, 512])
-x1=Shape_Process(x)
-
-model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
-#model2 = VisionTransformer().to('cuda' if torch.cuda.is_available() else 'cpu')
-model(image=x1)
-#model(image=x)
-
-'''
-model = VisionTransformer()
-result = model(x, context)
-print(result)'''
-
-""" 
-class CrossAttention(nn.Module):
-    def __init__(self, img_size=512, patch_size=32, heads=8, head_dim=64, dropout=0.):
-        super().__init__()
-        self.img_size = img_size
-        self.patch_size = patch_size
-        self.scale = head_dim ** -0.5
-        self.heads = heads
-        self.head_dim = head_dim
-        self.dropout = nn.Dropout(p=dropout)
-
-        self.qW = nn.Linear(img_size, img_size, bias = False)
-        self.kWvW = nn.Linear(img_size, img_size * 2, bias = False)
-
-        self.out = nn.Sequential(
-            nn.Linear(img_size, img_size),
-            nn.Dropout(dropout)
-        )
-
-    def forward(self, x, context):
-        b, n, _, h = *x.shape, self.heads
-        h = self.heads
-        x = self.norm(x) 
-
-
-data_dir = '/Users/humza/PycharmProjects/OCSEF/dataset/ICH_train'
-dicom_files = sorted(glob(os.path.join(data_dir, "*.dcm")))
-
-def load_dicom_to_tensor(file_path):
-    # Load DICOM file
-    dicom = pydicom.dcmread(file_path)
-
-    # Print some basic metadata to verify correct reading
-    print(f"Processing file: {file_path}")
-    print(f"Patient ID: {dicom.PatientID if 'PatientID' in dicom else 'N/A'}")
-    print(f"Modality: {dicom.Modality if 'Modality' in dicom else 'N/A'}")
-
-    # Get pixel array and convert to float32
-    image = dicom.pixel_array.astype(np.float32)
-
-    # Ensure 2D image is in (H,W) format
-    if len(image.shape) == 2:
-        image = image[np.newaxis, ...]  # Add channel dimension: (1,H,W)
-    elif len(image.shape) == 3:
-        image = image[0:1, ...]  # Take first channel if multi-channel
-
-    # Convert to PyTorch tensor
-    tensor = torch.from_numpy(np.array(image).astype('float32'))
-    return tensor
-
-
-
-# Device configuration
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-# Hyperparameters
-batch_size = 128
-learning_rate = 3e-4
-num_epochs = 1
-img_size=28
-patch_size=16
-in_chans=1
-embed_dim=128
-depth=12
-n_heads=12
-mlp_ratio=4
-qkv_bias=True
-p=0.
-attn_p=0.
-
-input_1 = torch.randn([1, 1, 16, 16])
-context = torch.randn([1,1,16,16])
-# Initialize model
-model = VisionTransformer(input_1 = input_1,
-                          context = context,
-                          img_size = img_size,
-                          patch_size = patch_size,
-                          in_chans = in_chans,
-                          embed_dim = embed_dim,
-                          depth = depth,
-                          n_heads = n_heads,
-                          qkv_bias = qkv_bias,
-                          drop_p=p,
-                          attn_p = attn_p).to(device)
-
-
-# Loss and optimizer
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-# Training loop
-loss = 0
-for i in tqdm(range(len(dicom_files))):
-    tensor = load_dicom_to_tensor(dicom_files[i])
-    tensor = tensor.to('cuda' if torch.cuda.is_available() else 'cpu')
-    model.train()
-    x = model(tensor)
-    print(x)
-"""

@@ -14,7 +14,7 @@ import os
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from glob import glob
-from ViT import VisionTransformer
+from ViT import VisionTransformer, PatchEmbed, DualInputCrossAttention, Block
 
 def crop_img(tensor, target_tensor):
     tensor_size = tensor.size()[2] # (bs, c, h, w)
@@ -33,17 +33,9 @@ def doubleConv2d(in_c, out_c):
     return conv
 
 NET_INPUT_SIZE = (572, 572)
+
 def Shape_Process(img_tensor):
-    """
-    Processes the input image tensor to match the network input size using PyTorch operations.
 
-    Args:
-        img_tensor (torch.Tensor): Input image tensor in CxHxW format.
-        NET_INPUT_SIZE (tuple): Target spatial size (height, width).
-
-    Returns:
-        torch.Tensor: Processed image tensor.
-    """
     _, C, H, W = img_tensor.shape
     TH, TW = NET_INPUT_SIZE
 
@@ -120,6 +112,8 @@ class UNetViTCross(nn.Module):
 
         self.cross_model = VisionTransformer()
 
+        self.feature_addition = feature_addition()
+
 
     def feature_addition(x, attention_map, stage):
         B, C, H, W = x.size()
@@ -153,7 +147,12 @@ class UNetViTCross(nn.Module):
 
         x9 = self.doubleConv_5(x8) # bottleneck, Shape: [1, 1024, 28, 28]
 
-        x_i = self.cross_model(x9, feature_tensor)
+        x_reshaped = x9.flatten(2)
+        x_reshaped = x9.transpose(1, 2)
+
+        print(x_reshaped.shape)
+
+        x_i = self.cross_model(feature_tensor, x_reshaped)
 
         # apply the cross
         #x = self.cross_model(x9)
@@ -187,194 +186,10 @@ class UNetViTCross(nn.Module):
         output = self.out(x_cat_4)
         return output
 
-#ViT architecture
-
-class PatchEmbed(nn.Module):
-    """
-    Split image into patches and then embed them.
-
-    Parameters
-    ---------
-    img_size : int
-        Size of the image (it is a square).
-
-    patch_size: int
-        Size of the patch (it is a square).
-
-    in_chans: int
-        Number of input channels.
-
-    embed_dim : int
-        The embedding dimension.
-
-    Attributes
-    ----------
-    n_patches : int
-        Number of patches inside of our image.
-
-    proj : nn.Conv2d
-        Convolutional layer that does both the splitting into patches and their embedding
-    """
-
-    def __init__(self, img_size, patch_size, in_chans=1, embed_dim=1024):
-        super().__init__()
-        self.img_size = int(572)
-        self.patch_size = int(22)
-        self.n_patches = (img_size // patch_size) ** 2
-
-        self.proj = nn.Conv2d(
-            in_chans,
-            embed_dim,
-            kernel_size=patch_size,
-            stride=patch_size
-        )
-
-    def forward(self, x):
-        """
-        Run forward pass.
-
-        Parameters
-        ----------
-        x = torch.Tensor
-            Shape '(n_samples, in_chans, img_size, img_size)'
-
-        Returns
-        -------
-        torch.Tensor
-            Shape '(n_samples, n_patches, embed_dim)'
-        """
-        x = self.proj(
-            x
-        ) # (n_samples, embed_dim, n_patches**0.5, n_patches**0.5)
-        x = x.flatten(2)   # (n_samples, embed_dim, n_patches)
-        x = x.transpose(1, 2) # (n_samples, n_patches, embed_dim)
-
-        return x
-
-#single cross
-'''class UNetViTCross(nn.Module):
-    def __init__(self,
-                 in_chans = 1024,
-                 img_size = 512,
-                 patch_size = 16,
-                 embed_dim = 128):
-        #declaring basic structure for cross
-        super().__init__()
-        self.patch_embed = PatchEmbed(img_size=img_size,
-                                      patch_size=patch_size,
-                                      in_chans = in_chans,
-                                      embed_dim = 128)
-        self.attn_layer = nn.MultiheadAttention(embed_dim=768, num_heads=4)
-        self.projection = nn.Linear(768, 1024)
-
-    def forward(self, x):
-        b, c, h, w, = x.shape
-        x_patches = self.patch_embed(x) # converting the input to patches
-        attn_output, n = self.atten_layer(x_patches, x_patches, x_patches)
-        attn_output = self.projection(attn_output).permute(0, 2, 1).view(b,c,h,w) #remake shape
-        return (x + attn_output) / (1**0.5) # adding the features to UNET and scaling feature intensity using temperature calculation'''
-
-'''class SelfAttention(nn.Module):
-    def __init__(self, embed_dim, num_heads = 4, dropout=0.):
-        super().__init__()
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        self.head_dim = embed_dim // num_heads
-
-        assert self.head_dim * num_heads == embed_dim, "embed_dim must be divisible by num_heads"
-
-        # Single input projection (since Q, K, V all come from the same source)
-        self.q_proj = nn.Linear(embed_dim, embed_dim)
-        self.k_proj = nn.Linear(embed_dim, embed_dim)
-        self.v_proj = nn.Linear(embed_dim, embed_dim)
-
-        self.dropout = nn.Dropout(dropout)
-        self.out_proj = nn.Linear(embed_dim, embed_dim)
-
-    def forward(self, x):
-        batch_size = x.size(0)
-
-        # Project input to query, key, value
-        q = self.q_proj(x)  # (B, N, D)
-        k = self.k_proj(x)  # (B, N, D)
-        v = self.v_proj(x)  # (B, N, D)
-
-        # Reshape for multi-head attention
-        q = q.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)  # (B, H, N, d)
-        k = k.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)  # (B, H, N, d)
-        v = v.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)  # (B, H, N, d)
-
-        # Compute attention scores
-        attn_scores = (q @ k.transpose(-2, -1)) / (self.head_dim ** 0.5)  # (B, H, N, N)
-        attn_weights = F.softmax(attn_scores, dim=-1)
-        attn_weights = self.dropout(attn_weights)
-
-        # Apply attention to values
-        output = attn_weights @ v  # (B, H, N, d)
-        output = output.transpose(1, 2).contiguous().view(batch_size, -1, self.embed_dim)  # (B, N, D)
-
-        # Final projection
-        output = self.out_proj(output)
-        return output
-'''
-
-## use this one along with q for duel
-class DualInputCrossAttention(nn.Module):
-    def __init__(self, input, dim, num_heads=16, ):
-        super().__init__()
-        self.input = input
-        self.dim = dim
-        self.num_heads = num_heads
-        self.head_dim = dim // num_heads
-
-        assert self.head_dim * num_heads == dim, "dim must be divisible by num_heads"
-
-        # Query projection for input x
-        self.query = nn.Linear(input.size(), input.size())
-        # Key/Value projections for context
-        self.key = nn.Linear(input.size(), input.size())
-        self.value = nn.Linear(input.size(), input.size())
-
-        # Output projection
-        self.out_proj = nn.Linear(input.size(), input.size())
-
-    def forward(self, x, context):
-        """
-        Args:
-            x: (batch_size, seq_len_x, dim)
-            context: (batch_size, seq_len_ctx, dim)
-
-        Returns:
-            attended: (batch_size, seq_len_x, dim)
-        """
-        batch_size = x.size(0)
-
-        # Project inputs
-        q = self.query(x)  # (B, Lx, D)
-        k = self.key(context)  # (B, Lctx, D)
-        v = self.value(context)  # (B, Lctx, D)
-
-        # Reshape for multi-head attention
-        q = q.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-        k = k.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-        v = v.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-
-        # Compute attention scores
-        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / (self.head_dim ** 0.5)
-
-        # Apply softmax
-        attn_weights = F.softmax(attn_scores, dim=-1)
-
-        # Apply attention to values
-        attended = torch.matmul(attn_weights, v)
-
-        # Concatenate heads and project back
-        attended = attended.transpose(1, 2).contiguous() \
-            .view(batch_size, -1, self.dim)
-        return self.out_proj(attended)
-
-
 x = torch.randn([1,1,572,572])
 x = Shape_Process(x)
+#test = nn.Conv2d(1, 1024, kernel_size=1)
+#x = test(x)
+print("img_input: ", x.shape)
 model = UNetViTCross().to('cuda' if torch.cuda.is_available() else 'cpu')
 model(x,x)
