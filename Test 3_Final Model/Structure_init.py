@@ -72,15 +72,15 @@ def Shape_Process(img_tensor):
 
 def feature_addition(x, attention_map, stage):
     B, C, H, W = x.size()
-    x = x.view(B, C, H * W).permute(2, 0, 1)  # Reshape to (H*W, B, C)
+    x = x.view(B, C, H * W)  # Reshape to (H*W, B, C)
 
         # Extract attention features for the current stage
-    attn_features = attention_map[stage - 1, :, :]  # Shape: (256, 784)
+    attn_features = attention_map[stage-1, :, :]  # Shape: (256, 784)
 
         # Perform matrix multiplication with attention features
-    weighted_x = torch.matmul(attn_features.permute(1, 0), x.permute(1, 0, 2))
+    weighted_x = torch.matmul(attn_features, x)
 
-    weighted_x = weighted_x.permute(1, 2, 0).view(B, C, H, W)
+    weighted_x = weighted_x.view(B, C, H, W)
 
     return weighted_x
 
@@ -112,24 +112,6 @@ class UNetViTCross(nn.Module):
 
         self.cross_model = VisionTransformer()
 
-        self.feature_addition = feature_addition()
-
-
-    def feature_addition(x, attention_map, stage):
-        B, C, H, W = x.size()
-        x = x.view(B, C, H * W).permute(2, 0, 1)  # Reshape to (H*W, B, C)
-
-        # Extract attention features for the current stage
-        attn_features = attention_map[stage - 1, :, :]  # Shape: (256, 784)
-
-        # Perform matrix multiplication with attention features
-        weighted_x = torch.matmul(attn_features.permute(1, 0), x.permute(1, 0, 2))
-
-        weighted_x = weighted_x.permute(1, 2, 0).view(B, C, H, W)
-
-        return weighted_x
-
-
     def forward(self, image, feature_tensor):
         #t_embed = torch.rand_like(image) * t.view(-1, 1, 1, 1)
         #image = torch.cat([image, t_embed], dim=1)
@@ -147,49 +129,99 @@ class UNetViTCross(nn.Module):
 
         x9 = self.doubleConv_5(x8) # bottleneck, Shape: [1, 1024, 28, 28]
 
-        x_reshaped = x9.flatten(2)
-        x_reshaped = x9.transpose(1, 2)
-
+        x_reshaped = x9.flatten(2).transpose(1, 2)
         print(x_reshaped.shape)
 
         x_i = self.cross_model(feature_tensor, x_reshaped)
-
-        # apply the cross
-        #x = self.cross_model(x9)
+        print(x_i.shape)
 
         # decoder and feature addition
-        x9 = feature_addition(x9, x_i, 1)
+        #x9 = feature_addition(x9, x_i, 1)
         x_up_1 = self.up_trans_1(x9)
         y_1 = crop_img(x7, x_up_1)
         #y_1 = self.cross_model(y_1) # Apply cross attention
         z1 = torch.cat([x_up_1, y_1], 1)
         x_cat_1 = self.up_conv_1(z1)
 
-        x_cat_1 = feature_addition(x_cat_1, x_i, 2)
+       #x_cat_1 = feature_addition(x_cat_1, x_i, 2)
         x_up_2 = self.up_trans_2(x_cat_1)
         y_2 = crop_img(x5, x_up_2)
         z2 = torch.cat([x_up_2, y_2], 1)
         x_cat_2 = self.up_conv_2(z2)  ######################
 
-        x_cat_2 = feature_addition(x_cat_2, x_i, 3)
+        #x_cat_2 = feature_addition(x_cat_2, x_i, 3)
         x_up_3 = self.up_trans_3(x_cat_2)
         y_3 = crop_img(x3, x_up_3)
         z3 = torch.cat([x_up_3, y_3], 1)
         x_cat_3 = self.up_conv_3(z3)
 
-        x_cat_3 = feature_addition(x_cat_3, x_i, 4)
+        #x_cat_3 = feature_addition(x_cat_3, x_i, 4)
         x_up_4 = self.up_trans_4(x_cat_3)
         y_4 = crop_img(x1, x_up_4)
         z4 = torch.cat([x_up_4, y_4], 1)
         x_cat_4 = self.up_conv_4(z4)
 
         output = self.out(x_cat_4)
+        print(output.shape)
         return output
 
-x = torch.randn([1,1,572,572])
-x = Shape_Process(x)
+data_dir = ('/Users/hatapd/PycharmProjects/OCSEF/dataset/ICH_train')
+dicom_files = sorted(glob(os.path.join(data_dir, "*.dcm")))
+
+def load_dicom_to_tensor(file_path):
+    # Load DICOM file
+    dicom = pydicom.dcmread(file_path, force=True)
+
+    # Print some basic metadata to verify correct reading
+    #print(f"Processing file: {file_path}")
+    #print(f"Patient ID: {dicom.PatientID if 'PatientID' in dicom else 'N/A'}")
+    #print(f"Modality: {dicom.Modality if 'Modality' in dicom else 'N/A'}")
+
+    # Get pixel array and convert to float32
+    image = dicom.pixel_array.astype(np.float32)
+
+    # Ensure 2D image is in (H,W) format
+    if len(image.shape) == 2:
+        image = image[np.newaxis, ...]  # Add channel dimension: (1,H,W)
+    elif len(image.shape) == 3:
+        image = image[0:1, ...]  # Take first channel if multi-channel
+
+    # Convert to PyTorch tensor
+    tensor = torch.from_numpy(np.array(image).astype('float32'))
+    return tensor
+
+# Hyperparameters
+epochs = 1
+batch_size = 2
+lr = 2e-4
+T = 5 # Number of timesteps in the forward diffusion process
+best_loss = float('inf')  # Initialize best loss with infinity
+
+# Model Checkpoint Path
+checkpoint_dir = './checkpoints'
+if not os.path.exists(checkpoint_dir):
+    os.makedirs(checkpoint_dir)
+
+
+model = UNetViTCross().to('cuda' if torch.cuda.is_available() else 'cpu')
+optimizer = optim.Adam(model.parameters(), lr=lr)
+mse_loss = nn.MSELoss()
+
+loss = 0
+for i in tqdm(range(len(dicom_files)-4)):
+    tensor = load_dicom_to_tensor(dicom_files[i])
+    tensor = tensor.to('cuda' if torch.cuda.is_available() else 'cpu')
+
+    output = model(tensor)
+    print(output.shape)
+
+    # Backpropagation and optimization
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    loss += loss.item()
+    print("One run done.")
+
 #test = nn.Conv2d(1, 1024, kernel_size=1)
 #x = test(x)
-print("img_input: ", x.shape)
-model = UNetViTCross().to('cuda' if torch.cuda.is_available() else 'cpu')
-model(x,x)

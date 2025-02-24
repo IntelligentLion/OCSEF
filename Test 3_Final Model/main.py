@@ -175,5 +175,3 @@ for i in tqdm(range(len(dicom_files))):
 avg_loss = loss / len(dicom_files)
 print(f"Average Loss: {avg_loss}")
 print("Training complete.")
-
-

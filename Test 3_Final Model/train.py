@@ -153,4 +153,3 @@ loss_data = {
 }
 df_loss = pd.DataFrame(loss_data)
 df_loss.to_csv(f'loss/hemorrhage_{args.structure}_{args.database}_{args.model_name}_{args.image_size}_{args.batch_size}_{args.lr}.csv', index=False)
-
