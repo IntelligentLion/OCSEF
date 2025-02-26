@@ -136,6 +136,7 @@ lr = 1e-4 # karapathy constant
 BATCH_SIZE = 12
 best_loss = float('inf')
 
+
 # Model Checkpoint Path
 checkpoint_dir = './checkpoints'
 if not os.path.exists(checkpoint_dir):
